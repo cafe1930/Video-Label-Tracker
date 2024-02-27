@@ -6,6 +6,5 @@ call pip install ultralytics
 call pip install opencv-contrib-python
 call pip install lapx==0.5.5
 call pip install pyqt5
-call conda list > aaa.txt
 call conda deactivate
  

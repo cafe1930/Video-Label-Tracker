@@ -50,7 +50,8 @@ class One2OneMapping:
     
     def __repr__(self):
         return f'forward map: {self.forward_mapping_dict}, inverse map: {self.inverse_mapping_dict}'
-    
+
+
 
 class LabelNewBoxDialog(QDialog):
     def __init__(self, current_bbox, obj_descr2registered_bbox_dict, tracked_and_raw_bboxes_dict):
@@ -286,6 +287,28 @@ class SetFrameDialog(QDialog):
             )
             self.text_line.setText('')
             return
+        
+class SelectDetector(QDialog):
+    def __init__(self):
+        super().__init__()
+        detectors_names_list = ['yolov8n', 'yolov8s', 'yolov8m', 'yolov8l', 'yolov8x']
+        self.combobox = QComboBox()
+        self.combobox.addItems(detectors_names_list)
+        self.combobox.activated[str].connect(self.select_detector)
+        self.current_detector = 'yolov8x.pt' if torch.cuda.is_available() else 'yolov8s'
+
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel)
+
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+
+        self.main_layout = QVBoxLayout()
+        self.main_layout.addWidget(self.combobox)
+        self.main_layout.addWidget(self.buttons)
+        self.setLayout(self.main_layout)
+
+    def select_detector(self, val):
+        self.current_detector = f'{val}.pt'
 
 class TrackerWindow(QMainWindow):
     def __init__(self, screen_width, screen_height, tracker_type='yolov8x.pt'):
@@ -293,7 +316,7 @@ class TrackerWindow(QMainWindow):
 
         self.set_params_to_default()
 
-        self.tracker_type = tracker_type
+        self.tracker_type = 'yolov8x.pt' if torch.cuda.is_available() else 'yolov8s.pt'
 
         self.tracker = None #Yolov8Tracker(model_type=tracker_type) он инициализируется приоткрытии файла
 
@@ -388,10 +411,16 @@ class TrackerWindow(QMainWindow):
         #openFile.setStatusTip('Open new File')
         open_file.triggered.connect(self.open_file)
 
+        change_detector = QAction('Change Detector Type', self)
+        change_detector.triggered.connect(self.change_detector)
+       
         # строка меню
         menubar = self.menuBar()
         fileMenu = menubar.addMenu('&File')
+        editMenu = menubar.addMenu('&Edit')
         fileMenu.addAction(open_file)
+        editMenu.addAction(change_detector)
+        
 
         # выстраивание разметки приложения
         self.grid = QGridLayout()
@@ -512,6 +541,35 @@ class TrackerWindow(QMainWindow):
         self.temp_bboxes_list = []
 
         #self.reset_table()
+
+    def change_detector(self):
+        select_detector_dialog = SelectDetector()
+        is_changed = select_detector_dialog.exec()
+        if not is_changed:
+            return
+        else:
+            #print(f'{select_detector_dialog.current_detector}')
+            if self.video_capture is None:
+                self.tracker_type = select_detector_dialog.current_detector
+            else:
+                ret = show_info_message_box(
+                    'ВНИМАНИЕ!',
+                    'При смене детектора процесс отслеживания обнуляется и начинается заново! Снимается выделение со всех отслеживаемых объектов, их придется выбирать заново. Выполнить?',
+                    QMessageBox.Yes|QMessageBox.No,
+                    QMessageBox.Warning
+                )
+                if ret == QMessageBox.No:
+                    return
+                else:
+                    self.unselect_all_table_items()
+                    self.set_tracking_params_to_default()
+                    self.registered_bboxes_dict, self.tracking_bboxes_dict, self.tracked_and_raw_bboxes_dict \
+                        = self.update_registered_and_tracking_objects_dicts('raw')
+                    self.reset_tracker()
+                    self.read_persons_description()
+
+                    self.read_frame(direction='forward')
+
 
 
     '''
@@ -1551,8 +1609,7 @@ class TrackerWindow(QMainWindow):
             print(f'tracking_bboxes_dict:\n{self.tracking_bboxes_dict}')
             print(f'all_frames_raw_bbox_name2registered_bbox_name_dict: {self.all_frames_raw_bbox_name2registered_bbox_name_dict}')
             print('-------------------------------')
-            '''
-            
+            '''     
             
     def stop_showing(self):
         if self.is_showing:
@@ -1564,8 +1621,7 @@ class Yolov8Tracker:
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         # debug!
         #device = torch.device('cpu')
-        if device == torch.device('cpu'):
-            model_type = 'yolov8s.pt'
+        
         print(f'We are using {device} device for tracking')
         print()
         self.tracker = YOLO(model_type).to(device)
