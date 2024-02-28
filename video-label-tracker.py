@@ -549,8 +549,9 @@ class TrackerWindow(QMainWindow):
             return
         else:
             #print(f'{select_detector_dialog.current_detector}')
+            self.tracker_type = select_detector_dialog.current_detector
             if self.video_capture is None:
-                self.tracker_type = select_detector_dialog.current_detector
+                return
             else:
                 ret = show_info_message_box(
                     'ВНИМАНИЕ!',

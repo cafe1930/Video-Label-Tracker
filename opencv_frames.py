@@ -114,8 +114,10 @@ def draw_bbox_with_text(
     '''
 
     x0, y0, x1, y1 = bbox_coords
+    #print(x0, y0, x1, y1)
     image =  Image.fromarray(image)
     cols, rows = image.size
+    #x0, y0, x1, y1 = process_box_coords(x0, y0, x1, y1, rows, cols)
 
     draw = ImageDraw.Draw(image)
 

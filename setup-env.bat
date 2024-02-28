@@ -6,5 +6,6 @@ call pip install ultralytics
 call pip install opencv-contrib-python
 call pip install lapx==0.5.5
 call pip install pyqt5
+call pip install pillow==9.3.0
 call conda deactivate
  
