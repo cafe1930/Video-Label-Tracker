@@ -206,8 +206,9 @@ class BboxFrame:
                 
                 # получаем индекс текущего класса
                 class_idx = self.class_indices_dict[self.current_class_name]
-                color = self.palette_dict[self.current_class_name]                
-                self.processing_box = Bbox(x, y, x, y, rows, cols, self.current_class_name, color, class_idx)
+                color = self.palette_dict[self.current_class_name]
+                class_name, id = self.current_class_name.split(',')
+                self.processing_box = Bbox(x, y, x, y, rows, cols, class_name, color, int(id))
                 self.processing_box.create_bbox(x, y)
                 #bbox_name = f'{self.current_class_name},{class_idx}'
                 self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
@@ -500,7 +501,7 @@ class BboxFrameTracker:
         self.processing_box = None
 
         # имя класса конкретной рамки, с которой мы проводим манипуляции
-        #self.current_class_name = current_class_name
+        self.current_class_name = None
 
         self.delete_box_flag = False
 
@@ -691,17 +692,23 @@ class BboxFrameTracker:
             self.is_bboxes_dragged = False
     
 
-    def change_class_name(self, event, flags, bbox_name):
+    def change_class_name(self, event, flags, drawing_bbox_name):
         if event == cv2.EVENT_RBUTTONDOWN:
             if flags & cv2.EVENT_FLAG_CTRLKEY and not flags & cv2.EVENT_FLAG_ALTKEY:
+                #print(drawing_bbox_name, self.current_class_name)
                 if self.processing_box is None:
-                    self.processing_box = self.bboxes_dict[bbox_name]
-                    current_color = self.palette_dict[self.current_class_name]
-                    self.processing_box.class_name = self.current_class_name
-                    self.processing_box.color = current_color
-                    self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
-                    self.processing_box = None
-                    self.is_bboxes_changed = True
+                    if self.current_class_name is not None:
+                        self.processing_box = self.bboxes_dict[drawing_bbox_name]
+                        current_color = (0,255,0)
+                        class_name, id = self.current_class_name.split(',')
+
+                        self.processing_box.class_name = class_name
+                        self.processing_box.id = int(id)
+                        self.processing_box.color = current_color
+                        self.bboxes_dict[self.current_class_name] = self.processing_box
+                        self.bboxes_dict.pop(drawing_bbox_name)
+                        self.processing_box = None
+                        self.is_bboxes_changed = True
         else:
             self.is_bboxes_changed = False
 
@@ -723,6 +730,7 @@ class BboxFrameTracker:
         self.img = None
 
     def update_current_class_name(self, current_class_name):
+        #print(current_class_name)
         self.current_class_name = current_class_name
 
     def __call__(self, event, x, y, flags, param):

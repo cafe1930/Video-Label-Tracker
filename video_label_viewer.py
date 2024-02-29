@@ -265,6 +265,7 @@ class LabelViewerWindow(QMainWindow):
         #bbox_idx = int(bbox_idx)
         if bbox_name in self.frame_with_boxes.bboxes_dict:
             self.frame_with_boxes.bboxes_dict[bbox_name].is_visible = item.isSelected()
+            
             '''
             if self.frame_with_boxes is not None:
                 for bbox_name, bbox in self.frame_with_boxes.bboxes_dict.items():
@@ -273,7 +274,10 @@ class LabelViewerWindow(QMainWindow):
                     if bbox_class_name == bbox_name and bbox_idx == sample_idx:
                         bbox.is_visible = item.isSelected()
             '''
-            self.update_visible_classes_list()
+
+        if item.isSelected():
+            self.update_current_box_class_name(bbox_name)
+        self.update_visible_classes_list()
 
     
     def update_visible_boxes_on_selection_slot(self, item):
@@ -288,6 +292,8 @@ class LabelViewerWindow(QMainWindow):
         #bbox_idx = int(bbox_idx)
         if bbox_name in self.frame_with_boxes.bboxes_dict:
             self.frame_with_boxes.bboxes_dict[bbox_name].is_visible = item.isSelected()
+
+            self.update_visible_classes_list()
         '''
         class_str = item.data(0)
         class_name, bbox_idx = class_str.split(',')
@@ -504,14 +510,10 @@ class LabelViewerWindow(QMainWindow):
         '''
         path_to_target_json_label = os.path.join(
             self.path_to_labelling_folder, f'{self.current_frame_idx:06d}.json')
-        
-        # если файл с разметкой есть,то читаем его в словарь
-        if os.path.isfile(path_to_target_json_label):
-            with open(path_to_target_json_label, encoding='utf-8') as fd:
-                labels_json_dict = json.load(fd)
-        # инче создаем пустой словарь
-        else:
-            labels_json_dict = {}
+        '''        
+
+        '''
+        labels_json_dict = {}
         
         # обновляем словарь новыми рамками
         labels_json_dict.update(
@@ -542,7 +544,8 @@ class LabelViewerWindow(QMainWindow):
             if self.imshow_thread.isRunning():
                 self.stop_imshow_thread()
             return
-        
+        #print('BEFORE SAVE')
+        #print(self.frame_with_boxes.bboxes_dict)
         self.save_labels()
         self.current_frame_idx -= 1
         if self.current_frame_idx < 0:
@@ -561,7 +564,8 @@ class LabelViewerWindow(QMainWindow):
             if self.autosave_mode:
                 pass
                 #self.save_labels_to_txt()
-            
+        #print('BEFORE SAVE')
+        #print(self.frame_with_boxes.bboxes_dict)
         self.save_labels()
         self.current_frame_idx += 1
         if self.current_frame_idx >= self.frame_number:
