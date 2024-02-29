@@ -333,10 +333,12 @@ class TrackerWindow(QMainWindow):
 Удаление рамки: зажатый Alt+клик ЛКМ внутри рамки
 
 '''
+        # флаг, разрешающий автоматическое воспроизведение видео
+        
         bboxes_correction_info = QLabel(text=bboxes_correction_info_str)
         next_frame_button = QPushButton("След. кадр >")
         previous_frame_button = QPushButton("< Пред. кадр")
-        #autoplay_button = QPushButton("Autoplay")
+        autoplay_button = QPushButton("Autoplay 30 frames")
         self.autosave_current_checkbox = QCheckBox('Autosave Current Boxes')
         self.show_tracked_checkbox = QCheckBox('Показать отслеживаемые объекты')
 
@@ -390,7 +392,7 @@ class TrackerWindow(QMainWindow):
         # присоединение к обработчику события
         next_frame_button.clicked.connect(self.next_frame_button_handling)
         previous_frame_button.clicked.connect(self.previous_frame_button_handling)
-        #autoplay_button.clicked.connect(self.autoplay)
+        autoplay_button.clicked.connect(self.autoplay)
         register_objects_button.clicked.connect(self.register_persons_handling)
         cancell_register_objects_button.clicked.connect(self.cancell_register_objects_button_handling)
         reset_tracker_and_set_frame_button.clicked.connect(self.reset_tracker_and_set_frame_button_handling)
@@ -451,8 +453,9 @@ class TrackerWindow(QMainWindow):
 
         #self.control_layout.addWidget(self.frame_slider)
         #self.control_layout.addWidget(self.autosave_current_checkbox)
+        self.control_layout.addWidget(autoplay_button)
         self.control_layout.addLayout(self.prev_next_layout)
-        #self.control_layout.addWidget(autoplay_button)
+        #
 
         # пока что спрячем разворачивающийся список классов...
         self.displaying_classes_layout.addWidget(self.classes_with_description_table)
@@ -503,6 +506,8 @@ class TrackerWindow(QMainWindow):
         # названия рамок объектов, которых мы отслеживаем
         # удобно хранить в множестве (set), для быстрого доступа и извлечения
         self.tracking_bboxes_names_set = set()
+        
+        self.is_autoplay = False
 
         # словарь с рамками зарегистрированных объектов, которых мы отслеживаем
         # {имя зарегистрированной рамки: объект рамки}
@@ -533,6 +538,8 @@ class TrackerWindow(QMainWindow):
         # наверное, лучше хранить все рамки в списке, что должно чуть-чуть ускорить обработку
         self.all_frames_bboxes_list = []
 
+        self.is_autoplay = False
+
         self.set_tracking_params_to_default()
 
         self.autosave_mode = False
@@ -545,6 +552,7 @@ class TrackerWindow(QMainWindow):
     def change_detector(self):
         select_detector_dialog = SelectDetector()
         is_changed = select_detector_dialog.exec()
+        self.is_autoplay = False
         if not is_changed:
             return
         else:
@@ -597,9 +605,11 @@ class TrackerWindow(QMainWindow):
             QMessageBox.Yes|QMessageBox.No,
             QMessageBox.Warning
             )
+        self.is_autoplay = False
         if ret == QMessageBox.No:
             return
         
+
         set_frame_dialog = SetFrameDialog(self.frame_number)
         set_frame_dialog.exec()
         if set_frame_dialog.frame_idx is None:
@@ -646,6 +656,7 @@ class TrackerWindow(QMainWindow):
                 'Данное действие удалит все зарегистрированные объекты. Придется выполнять регистрацию заново и выбирать объект отслеживания',
                 QMessageBox.Yes|QMessageBox.No,
                 QMessageBox.Warning)
+        self.is_autoplay = False
         if ret == QMessageBox.No:
             return
         
@@ -671,6 +682,7 @@ class TrackerWindow(QMainWindow):
 
 
     def register_persons_handling(self):
+        self.is_autoplay = False
         if len(self.obj_descr2registered_bbox_dict) == 0:
             show_info_message_box(
                 'Ошибка загрузки описаний объектов',
@@ -686,6 +698,7 @@ class TrackerWindow(QMainWindow):
                 'На видео не обнаружены объекты',
                 QMessageBox.Ok,
                 QMessageBox.Critical)
+            
             return               
         
 
@@ -802,6 +815,10 @@ class TrackerWindow(QMainWindow):
             self.previous_frame_button_handling()
             return
         
+        if event.text().lower() == ']' or event.text().lower() == 'ъ':
+            self.autoplay()
+            return
+    
 
     def update_registered_and_tracking_objects_dicts(self, update_source):
         '''
@@ -929,6 +946,7 @@ class TrackerWindow(QMainWindow):
         """
 
     def search_first_appearance_button_slot(self):
+        self.is_autoplay = False
         # Сначала надо проверить, что выделен лишь один класс
         qlist_len = self.visible_classes_list_widget.count()
         if qlist_len == 0:
@@ -1022,7 +1040,7 @@ class TrackerWindow(QMainWindow):
         print(f'tracked_and_raw {self.tracked_and_raw_bboxes_dict}')
         print()
         '''
-
+        self.is_autoplay = False
         label_new_bbox_dialog = LabelNewBoxDialog(
             self.frame_with_boxes.bboxes_dict['None,None'],
             self.obj_descr2registered_bbox_dict,
@@ -1310,7 +1328,9 @@ class TrackerWindow(QMainWindow):
             json.dump(labels_json_dict, fd, indent=4)
 
     def next_frame_button_handling(self):
+
         if self.video_capture is None or self.frame_with_boxes is None:
+            self.is_autoplay = False    
             if self.imshow_thread.isRunning():
                 self.stop_imshow_thread()
             return
@@ -1322,6 +1342,7 @@ class TrackerWindow(QMainWindow):
         
         # если не выбраны рамки для трекинга, то 
         if len(self.tracking_bboxes_names_set) == 0:
+            self.is_autoplay = False
             show_info_message_box('Внимание!', 'Не выбраны объекты для трекинга!\nЧтобы начать воспроизведение видео выберите объекты из таблицы', QMessageBox.Ok, QMessageBox.Warning)
             return
         
@@ -1334,6 +1355,7 @@ class TrackerWindow(QMainWindow):
         '''
         self.current_frame_idx += 1
         if self.current_frame_idx >= self.frame_number:
+            self.is_autoplay = False
             self.current_frame_idx = self.frame_number - 1
             show_info_message_box('Конец видео', 'Вы достигли конца видео', QMessageBox.Ok, QMessageBox.Information)
             return
@@ -1346,9 +1368,11 @@ class TrackerWindow(QMainWindow):
         # при переходе на новый кадр обнуляем словарь для отображения  
         # имен сгенерированных рамок на имена зарегистирированных рамок
         self.current_frame_raw_bbox_name2registered_bbox_name_mapping = One2OneMapping()
+        return
 
     def previous_frame_button_handling(self):
         if self.video_capture is None or self.frame_with_boxes is None:
+            self.is_autoplay = False
             if self.imshow_thread.isRunning():
                 self.stop_imshow_thread()
             return
@@ -1358,6 +1382,7 @@ class TrackerWindow(QMainWindow):
 
         self.current_frame_idx -= 1
         if self.current_frame_idx < 0:
+            self.is_autoplay = False
             return
                
         # сохраняем список рамок, прежде чем прочитать следующий кадр
@@ -1370,45 +1395,13 @@ class TrackerWindow(QMainWindow):
         self.current_frame_raw_bbox_name2registered_bbox_name_mapping = One2OneMapping()
 
     def autoplay(self):
-        if self.video_capture is None or self.frame_with_boxes is None:
-            if self.imshow_thread.isRunning():
-                self.stop_imshow_thread()
-            return
-        
-        # сохраняем все рамки
-        if self.current_frame_idx > -1:
-            if self.autosave_mode:
-                self.save_labels()
-        
-        
-        # если не выбраны рамки для трекинга, то 
-        if len(self.tracking_bboxes_names_set) == 0:
-            show_info_message_box('Внимание!', 'Не выбраны объекты для трекинга', QMessageBox.Ok, QMessageBox.Warning)
-            return
-        
+        self.is_autoplay = True
+        for i in range(30):
+            if not self.is_autoplay:
+                break
+            self.next_frame_button_handling()
 
-        # сохраняем рамки
-        self.save_labels()
-        '''
-        print()
-        print()
-        print('/////////////NEW_FRAME/////////////')
-        '''
-        while True:
-            self.current_frame_idx += 1
-            if self.current_frame_idx >= self.frame_number:
-                self.current_frame_idx = self.frame_number - 1
-                show_info_message_box('Конец видео', 'Вы достигли конца видео', QMessageBox.Ok, QMessageBox.Information)
-                return
-            
-            # сохраняем список рамок, прежде чем прочитать следующий кадр
-            self.previous_tracked_and_raw_bboxes_dict = deepcopy(self.tracked_and_raw_bboxes_dict)
-
-            self.read_frame(direction='forward')
-
-            # при переходе на новый кадр обнуляем словарь для отображения  
-            # имен сгенерированных рамок на имена зарегистирированных рамок
-            self.current_frame_raw_bbox_name2registered_bbox_name_mapping = One2OneMapping()
+        
           
     def try_alternative_tracking(self, bbox_name):
         automatically_tracked_bbox = {}
@@ -1435,7 +1428,6 @@ class TrackerWindow(QMainWindow):
             new_area = compute_bbox_area(*new_coords)
             if new_area < 16:
                 # если площадь рамки стала слишком маенькой, надо предупредить об этом
-                #show_info_message_box('Внимание!', f'Отслеживаемая рамка {bbox_name} стала слишком маленькой (S={new_area}, coords={new_coords}).\nВы можете вручную изменить либо удалить рамку', QMessageBox.Ok, QMessageBox.Warning)
                 # если с рамкой произошла какая-то беда, то оставляем предыдущие координаты
                 new_coords = xywh2xyxy(*prev_coords)
             #self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_idx)
@@ -1499,6 +1491,7 @@ class TrackerWindow(QMainWindow):
                             QMessageBox.Yes|QMessageBox.No,
                             QMessageBox.Warning
                         )
+                        self.is_autoplay = False
                         if result == QMessageBox.Yes:
                             ret = self.register_persons_handling()
                             if ret is None:
@@ -1511,6 +1504,7 @@ class TrackerWindow(QMainWindow):
                         QMessageBox.Yes|QMessageBox.No,
                         QMessageBox.Warning
                     )
+                self.is_autoplay = False
                 if result == QMessageBox.Yes:                    
                     # заставляем рамку на предыдущем шаге быть восприимчивой к доп. трекингу
                     self.previous_tracked_and_raw_bboxes_dict[disappeared_bbox_name].is_additionaly_tracked = True
@@ -1530,6 +1524,7 @@ class TrackerWindow(QMainWindow):
                         QMessageBox.Yes|QMessageBox.No,
                         QMessageBox.Warning
                     )
+                self.is_autoplay = False
                 if result == QMessageBox.Yes:
                     self.register_persons_handling()
     
