@@ -1353,13 +1353,13 @@ class TrackerWindow(QMainWindow):
                 self.stop_imshow_thread()
             return
 
-        self.current_frame_idx -= 1
-        if self.current_frame_idx < 0:
-            return
-        
         # сохраняем рамки
         self.save_labels()
 
+        self.current_frame_idx -= 1
+        if self.current_frame_idx < 0:
+            return
+               
         # сохраняем список рамок, прежде чем прочитать следующий кадр
         self.previous_tracked_and_raw_bboxes_dict = deepcopy(self.tracked_and_raw_bboxes_dict)
 
