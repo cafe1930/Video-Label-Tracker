@@ -77,7 +77,7 @@ class LabelViewerWindow(QMainWindow):
         # присоединение к обработчику события
         close_video_button.clicked.connect(self.close_video)
         open_file_button.clicked.connect(self.open_file)
-        save_file_button.clicked.connect(self.save_labels_to_txt)
+        #save_file_button.clicked.connect(self.save_labels_to_txt)
         go_to_frame_button.clicked.connect(self.set_frame)
         next_frame_button.clicked.connect(self.next_frame_button_handling)
         previous_frame_button.clicked.connect(self.previous_frame_button_handling)
@@ -317,66 +317,11 @@ class LabelViewerWindow(QMainWindow):
             new_bboxes_dict = {}
             for bbox_name, (x0,y0,x1,y1) in bboxes_dict.items():
                 class_name,id = bbox_name.split(',')
-                new_bboxes_dict[bbox_name] = Bbox(x0, y0, x1, y1, self.img_cols, self.img_rows, class_name, (0,255,0), id, True)
+                new_bboxes_dict[bbox_name] = Bbox(x0, y0, x1, y1, self.img_rows, self.img_cols, class_name, (0,255,0), id, True)
 
             self.frame_with_boxes.bboxes_dict = new_bboxes_dict
             
-            '''
-            # сохраняем список рамок предыдущего кадра
-            self.temp_bboxes_list = self.frame_with_boxes.bboxes_list
             
-            with open(path_to_to_loading_labels, 'r', encoding='utf-8') as fd:
-                text = fd.read()
-            if len(text) == 0:
-                return
-            
-            text = text.split('\n')
-
-            # словарь нужен для того, чтобы подсчитывать количество рамок одного класса
-            new_bboxes_dict = {}
-            for str_bbox in text:
-                try:
-                    class_name, x0, y0, x1, y1 = str_bbox.split(',')
-                except Exception:
-                    continue
-                if self.img_cols / self.screen_width > 0.65 or self.img_rows / self.screen_height > 0.65:
-                    scaling_factor = 0.65*self.screen_width/self.img_cols
-                    scaling_function = lambda x: int(scaling_factor*int(x))
-                else:
-                    scaling_function = int
-                # !!!
-                #scaling_factor = self.img_cols*1.5/0.7/self.screen_width
-                #scaling_function = lambda x: int(scaling_factor*int(x))
-                x0, y0, x1, y1 = tuple(map(scaling_function, (x0, y0, x1, y1)))
-                color = (0,0,0)
-                try:
-                    new_bboxes_dict[class_name].append((color, x0, y0, x1, y1))
-                except KeyError:
-                    new_bboxes_dict[class_name] = [(color, x0, y0, x1, y1)]
-            
-            # создаем новый список рамок
-            new_bboxes_list = []
-            for class_name, coords_list in new_bboxes_dict.items():
-                for bbox_idx, (color, x0, y0, x1, y1) in enumerate(coords_list):
-                    is_visible = False
-                    for prev_bbox in self.temp_bboxes_list:
-                        prev_class_name, prev_color, prev_bbox_idx = tuple(prev_bbox.class_info_dict.values())
-                        
-                        if bbox_idx == prev_bbox_idx and class_name == prev_class_name:
-                            is_visible = prev_bbox.is_visible
-                            break
-
-                    new_bbox = Bbox(x0, y0, x1, y1, self.img_cols, self.img_rows, class_name, color, bbox_idx, is_visible)
-                    new_bboxes_list.append(new_bbox)
-
-            # переиндексируем рамки
-
-            for class_name, bboxes_list in new_bboxes_dict.items():
-                self.frame_with_boxes.class_indices_dict[class_name] = len(bboxes_list)
-            if len(new_bboxes_list) != 0:
-
-                self.frame_with_boxes.bboxes_list = new_bboxes_list
-            '''
     
     def update_visible_classes_list(self):
         '''
@@ -405,46 +350,7 @@ class LabelViewerWindow(QMainWindow):
                     self.frame_with_boxes.bboxes_dict[bbox_name].is_visible = item.isSelected()
                     #self.visible_classes_list_widget.item(item_idx).setSelected(bbox.is_visible)
 
-    #@pyqtSlot()
-    '''
-    def update_visible_classes_list(self):
-        
-        #обновление списка рамок. 
-        #Информация о рамках берется из списка рамок, хранящегося в self.frame_with_boxes
-
-        # определяем количество элементов в списке
-        qlist_len = self.visible_classes_list_widget.count()
-
-        #new_list = []
-        for bbox_name, bbox in self.frame_with_boxes.bboxes_dict.items():
-            #class_name = bbox.class_name
-            #sample_idx = bbox.id
-            is_selected = bbox.is_visible
-
-            #displayed_name = f'{class_name},{sample_idx}'
-            #item = QListWidgetItem(displayed_name)
-            
-            for item_idx in range(qlist_len):
-                item = self.visible_classes_list_widget.item(item_idx)
-
-                class_name_in_list = item.data(0)
-                if class_name_in_list == bbox_name:
-                    self.visible_classes_list_widget.item(item_idx).setSelected(bbox.is_visible)
-                    #item = prev_item
-                    #break
-
-            #new_list.append({'data': item.data(0), 'is_selected': is_selected})
-
-
-        
-        # обновление списка классов?
-        
-        self.visible_classes_list_widget.clear()
-        for bbox_idx, data_dict in enumerate(new_list):
-            item = QListWidgetItem(data_dict['data'])
-            self.visible_classes_list_widget.addItem(item)
-            self.visible_classes_list_widget.item(bbox_idx).setSelected(data_dict['is_selected'])
-        '''
+    
             
     def update_current_box_class_name(self, class_name):
         if self.frame_with_boxes is not None:
@@ -591,10 +497,30 @@ class LabelViewerWindow(QMainWindow):
             self.frame_with_boxes.delete_img()            
             self.imshow_thread.wait()
 
-    def save_labels_to_txt(self):
+    def save_labels(self):
         '''
         Сохранение координат рамок и классов в txt-файл, имя которого совпадает с номером кадра
         СОХРАНЕНИЕ ВЫПОЛНЯЕТСЯ АВТОМАТИЧЕСКИ ПРИ ПЕРЕХОДЕ НА СЛЕДУЮЩИЙ КАДР.
+        '''
+        path_to_target_json_label = os.path.join(
+            self.path_to_labelling_folder, f'{self.current_frame_idx:06d}.json')
+        
+        # если файл с разметкой есть,то читаем его в словарь
+        if os.path.isfile(path_to_target_json_label):
+            with open(path_to_target_json_label, encoding='utf-8') as fd:
+                labels_json_dict = json.load(fd)
+        # инче создаем пустой словарь
+        else:
+            labels_json_dict = {}
+        
+        # обновляем словарь новыми рамками
+        labels_json_dict.update(
+            {bbox_name:[int(coord) for coord in bbox.coords] for bbox_name, bbox in self.frame_with_boxes.bboxes_dict.items()})
+        
+        # Сохраняем разметку
+        with open(path_to_target_json_label, 'w', encoding='utf-8') as fd:
+            json.dump(labels_json_dict, fd, indent=4)
+        
         '''
         if self.frame_with_boxes is not None:
             bboxes = []
@@ -608,6 +534,7 @@ class LabelViewerWindow(QMainWindow):
             path_to_to_saving_labels = os.path.join(self.path_to_labelling_folder, '{:07d}.txt'.format(self.current_frame_idx))
             with open(path_to_to_saving_labels, 'w') as fd:
                 fd.write(bboxes)
+        '''
 
 
     def previous_frame_button_handling(self):
@@ -615,7 +542,8 @@ class LabelViewerWindow(QMainWindow):
             if self.imshow_thread.isRunning():
                 self.stop_imshow_thread()
             return
-
+        
+        self.save_labels()
         self.current_frame_idx -= 1
         if self.current_frame_idx < 0:
             return
@@ -633,6 +561,8 @@ class LabelViewerWindow(QMainWindow):
             if self.autosave_mode:
                 pass
                 #self.save_labels_to_txt()
+            
+        self.save_labels()
         self.current_frame_idx += 1
         if self.current_frame_idx >= self.frame_number:
             return
