@@ -432,7 +432,7 @@ class BboxFrame:
         font = ImageFont.truetype("FiraCode-SemiBold.ttf", font_size)
         # вычисляем ширину рамки. Квадратный корень почему-то работает хорошо...
         line_width = np.round(np.sqrt(font_size).astype(int))
-        for bbox_name, bbox in self.bboxes_dict.items():
+        for bbox_name, bbox in list(self.bboxes_dict.items())[::-1]:
             if bbox.is_visible:
                 x0, y0, x1, y1 = bbox.coords
                 
@@ -816,7 +816,7 @@ class BboxFrameTracker:
         # вычисляем ширину рамки. Квадратный корень почему-то работает хорошо...
         line_width = np.round(np.sqrt(font_size).astype(int))
         #print('--------------------DEBUG--------------------')
-        for bbox_name, bbox in list(self.bboxes_dict.items()):
+        for bbox_name, bbox in list(self.bboxes_dict.items())[::-1]:
             if bbox.is_visible:
                 x0, y0, x1, y1 = bbox.coords
                 class_name = bbox.class_name

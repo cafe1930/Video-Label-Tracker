@@ -882,6 +882,9 @@ class TrackerWindow(QMainWindow):
                     new_tracking_bboxes_dict[raw_tracked_bbox_name] = tracking_bbox
         else:
             raise ValueError(f'Parameter <update_source> should be equal either to str "raw" or str "raw_and_tracked"')
+        
+        # сортируем рамки по убыванию имен пока что выглядит как костыль
+        displaying_bboxes_dict = dict(sorted(displaying_bboxes_dict.items(), reverse=True))
             
         return new_registered_bboxes_dict, new_tracking_bboxes_dict, displaying_bboxes_dict
 
