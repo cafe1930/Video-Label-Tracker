@@ -339,7 +339,7 @@ class TrackerWindow(QMainWindow):
         next_frame_button = QPushButton("След. кадр >")
         previous_frame_button = QPushButton("< Пред. кадр")
         autoplay_button = QPushButton("Autoplay 30 frames")
-        self.autosave_current_checkbox = QCheckBox('Autosave Current Boxes')
+        self.disable_add_tracking = QCheckBox('Откл. доп трекинг')
         self.show_tracked_checkbox = QCheckBox('Показать отслеживаемые объекты')
 
         register_objects_button = QPushButton('Регистрация нового объекта')
@@ -400,7 +400,7 @@ class TrackerWindow(QMainWindow):
         show_registered_button.clicked.connect(self.show_registered_button_handing)
         show_tracked_button.clicked.connect(self.show_tracked_button_handling)
         show_tracked_and_raw_button.clicked.connect(self.show_tracked_and_raw_button_handling)
-        self.autosave_current_checkbox.stateChanged.connect(self.autosave_current_checkbox_slot)
+        self.disable_add_tracking.stateChanged.connect(self.disable_add_tracking_slot)
         self.show_tracked_checkbox.stateChanged.connect(self.show_tracked_checkbox_slot)
 
         #self.classes_combobox.currentTextChanged.connect(self.update_current_box_class_name)
@@ -452,7 +452,7 @@ class TrackerWindow(QMainWindow):
         self.control_layout.addWidget(reset_tracker_and_set_frame_button)
 
         #self.control_layout.addWidget(self.frame_slider)
-        #self.control_layout.addWidget(self.autosave_current_checkbox)
+        self.control_layout.addWidget(self.disable_add_tracking)
         self.control_layout.addWidget(autoplay_button)
         self.control_layout.addLayout(self.prev_next_layout)
         #
@@ -1012,11 +1012,12 @@ class TrackerWindow(QMainWindow):
         self.current_frame_idx = current_frame_idx
         self.read_frame(direction='forward')
 
-    def autosave_current_checkbox_slot(self):
+    def disable_add_tracking_slot(self):
         '''
         Обработчик checkbox, отвечающего за автоматическое сохранение кадра при переходе на новый
         '''
-        self.autosave_mode = self.autosave_current_checkbox.isChecked()
+        self.autosave_mode = self.disable_add_tracking.isChecked()
+        print(self.disable_add_tracking.isChecked())
 
     def show_tracked_checkbox_slot(self):
         self.is_tracked_bboxes_show = self.show_tracked_checkbox.isChecked()
@@ -1340,8 +1341,9 @@ class TrackerWindow(QMainWindow):
         
         # сохраняем все рамки
         if self.current_frame_idx > -1:
-            if self.autosave_mode:
-                self.save_labels()
+            #if self.autosave_mode:
+            #    self.save_labels()
+            pass
         
         # если не выбраны рамки для трекинга, то 
         if len(self.tracking_bboxes_names_set) == 0:
@@ -1418,26 +1420,35 @@ class TrackerWindow(QMainWindow):
             # получаем рамку на предыдущем кадре
             
             prev_coords = prev_bbox.x0y0wh()
-            try:
-                # объявляем трекер
-                alternative_tracker = cv2.legacy.TrackerMOSSE_create()
-                alternative_tracker.init(prev_frame, prev_coords)
-                _, tracked_bbox_coords = alternative_tracker.update(self.frame_with_boxes.img)
-            except:
-                return automatically_tracked_bbox
+            if self.disable_add_tracking.isChecked():
+                print('Tracking is OFF')
+                new_bbox = deepcopy(prev_bbox)
+            else:
+                print('Tracking is ON')
+                try:
+                    # объявляем трекер
+                    #alternative_tracker = cv2.legacy.TrackerMOSSE_create()
+                    alternative_tracker = cv2.TrackerCSRT_create()
+                    alternative_tracker.init(prev_frame, prev_coords)
+                    _, tracked_bbox_coords = alternative_tracker.update(self.frame_with_boxes.img)
+                except:
+                    return automatically_tracked_bbox
+                
+                tracked_bbox_coords = xywh2xyxy(*tracked_bbox_coords)
+                new_coords = process_box_coords(*tracked_bbox_coords, self.img_rows, self.img_cols)
+                new_area = compute_bbox_area(*new_coords)
+
+                if new_area < 16:
+                    # если площадь рамки стала слишком маенькой, надо предупредить об этом
+                    # если с рамкой произошла какая-то беда, то оставляем предыдущие координаты
+                    new_coords = xywh2xyxy(*prev_coords)
             
-            tracked_bbox_coords = xywh2xyxy(*tracked_bbox_coords)
-            new_coords = process_box_coords(*tracked_bbox_coords, self.img_rows, self.img_cols)
-            new_area = compute_bbox_area(*new_coords)
-            if new_area < 16:
-                # если площадь рамки стала слишком маенькой, надо предупредить об этом
-                # если с рамкой произошла какая-то беда, то оставляем предыдущие координаты
                 new_coords = xywh2xyxy(*prev_coords)
-            #self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_idx)
-            new_bbox = deepcopy(prev_bbox)
-            new_bbox.color = prev_bbox.color
-            new_bbox.coords = new_coords
-            new_bbox.is_additionaly_tracked = True
+                #self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_idx)
+                new_bbox = deepcopy(prev_bbox)
+                new_bbox.color = prev_bbox.color
+                new_bbox.coords = new_coords
+                new_bbox.is_additionaly_tracked = True
             automatically_tracked_bbox = {bbox_name: new_bbox}
 
         return automatically_tracked_bbox
