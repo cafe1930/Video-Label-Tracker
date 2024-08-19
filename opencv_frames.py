@@ -475,11 +475,15 @@ class BboxFrame:
 class BboxFrameTracker:
     def __init__(self, img):
         '''
-        Задаем изображение, список классов и имя класса, актуальной рамки
+        Класс служит для создания, изменения и рендеринга множества рамок, локализующих различные объекты в кадре
+        Используется в программе Video-Label-Tracker
+        Input:
+            img: numpy.ndarray, shape=(rows, cols, channels) - кадр видео
         '''
+        # на всякий случай копируем кадр
         self.img = img.copy()
 
-        # список, где мы храним все рамки
+        # словарь, где мы храним все рамки
         self.bboxes_dict = {}
 
         # имена всех классов, которые нужны для "автоматической" индексации рамок. Могут затруднять работу, в случае не определенных классов
@@ -518,8 +522,10 @@ class BboxFrameTracker:
         self.is_bbox_idx_displayed = True
     
 
-
     def draw_one_box(self, event, flags, x, y):
+        '''
+        Создание новой рамки вручную
+        '''
         rows, cols, channels = self.img.shape
         
         if event == cv2.EVENT_LBUTTONDOWN and not flags & cv2.EVENT_FLAG_CTRLKEY:
@@ -601,46 +607,6 @@ class BboxFrameTracker:
                 self.processing_box.stop_corner_drag()
             self.processing_box = None
             self.is_bboxes_changed = False
-        '''
-        if event == cv2.EVENT_LBUTTONDOWN:
-            if flags & cv2.EVENT_FLAG_CTRLKEY:
-                if self.processing_box is None:
-                    # здесь self.processing_box должен быть проинициализирован, иначе возвращаемся из функции
-                    self.processing_box = self.bboxes_dict[bbox_name]
-                    self.processing_box.corner_drag(x, y)
-                    self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
-        # mouse is being moved, draw rectangle
-        elif event == cv2.EVENT_MOUSEMOVE:
-            if flags & cv2.EVENT_FLAG_CTRLKEY:
-                if self.processing_box is not None:
-                    if self.processing_box.is_corner_dragging:
-                        # для обеспечения "передвижения" угла рамки, мы постоянно извлекаем станые координаты рамки и добавляем новые
-                        self.processing_box.corner_drag(x, y)
-                        self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
-            else:
-                self.processing_box.make_x0y0_lesser_x1y1()
-                self.processing_box.stop_corner_drag()
-                self.processing_box = None
-                
-        # if the left mouse button was released, set the drawing flag to False
-        elif event == cv2.EVENT_LBUTTONUP:
-            if flags & cv2.EVENT_FLAG_CTRLKEY:
-                if self.processing_box is not None and self.processing_box.is_corner_dragging:
-                    # фиксируеми нарисованную рамку
-                    self.processing_box.is_corner_dragging = False
-                    self.processing_box.corner_drag(x, y)
-                    self.processing_box.make_x0y0_lesser_x1y1()
-                    self.processing_box.stop_corner_drag()
-                
-                    self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
-
-                    self.processing_box = None
-
-                    self.is_bboxes_changed = True
-        else:
-            self.processing_box = None
-            self.is_bboxes_changed = False
-        '''
 
     def drag_box(self, event, flags, bbox_name, x, y):
         if event == cv2.EVENT_LBUTTONDOWN:
@@ -735,7 +701,7 @@ class BboxFrameTracker:
 
     def __call__(self, event, x, y, flags, param):
         '''
-        Обработка коллбэков
+        Обработка коллбэков opencv. Сигнатура метода совпадает с сигнатурой обработчика коллбэков opencv.
         '''
         
         # при зажатом Ctl мы изменяем (перетаскиваем или меняем размер) рамку
@@ -869,31 +835,42 @@ class BboxFrameTracker:
 class Bbox:
     def __init__(self, x0, y0, x1, y1, img_rows, img_cols, class_name, color, sample_idx, is_visible=True, is_additionaly_tracked=False):
         '''
+        Класс, описывающий поведение одной локализационной рамки
         x0, y0, x1, y1 - координаты правого верхнего и левого нижнего углов рамки
         img_rows, img_cols - количество строк и стоблцов изображения, необходимые для нормировки координат рамок
         class_name - имя класса
         color - цвет рамки
         sample_idx - индекс или номер рамки одного и того же класса для отслеживания ситуаций, когда на изображении много объектов одного и того же класса 
-        is_additionaly_tracked - флаг-сигнал для выполнения дополнительного трекинга 
+        is_additionaly_tracked - флаг-сигнал для выполнения дополнительного трекинга с использованием трекеров opencv
         '''
+
+        # координаты левого верхнего и правого нижнего углов рамки
         self.coords = (x0, y0, x1, y1)
+        # имя класса
         self.class_name = class_name
+        # индекс объекта какого-то определенного класса
         self.id = sample_idx
+        # цвет рамки
         self.color = color
 
         # координаты начального угла рамки
         self.ix = None
         self.iy = None
 
+        # координаты смещений углов рамки при создании и изменении
         self.dx0 = None
         self.dy0 = None
         self.dx1 = None
         self.dy1 = None
 
+        # флаг, сигнализирующий, что данная рамка создается
         self.is_bbox_creation = False
+        # флаг, сигнализирующий, что координаты какого-либо угла рамки изменяются
         self.is_corner_dragging = False
+        # Флаг, сигнализирующий, что рамка перемещается по кадру0
         self.is_bbox_dragging = False
 
+        # размер карда
         self.img_rows = img_rows
         self.img_cols = img_cols
 
@@ -950,16 +927,7 @@ class Bbox:
             distances_array = np.linalg.norm(bbox_cornenrs_matrix-cursor_corner_arr, axis=1)
             farthest_corner_idx = np.argmax(distances_array)
             self.ix, self.iy = bbox_cornenrs_matrix[farthest_corner_idx]
-            '''
-            dist0 = np.linalg.norm([x0-corner_x, y0-corner_y])
-            dist1 = np.linalg.norm([x1-corner_x, y1-corner_y])
-            if dist0 >= dist1:
-                self.ix = x0
-                self.iy = y0
-            else:
-                self.ix = x1
-                self.iy = y1
-            '''
+            
             
             self.is_corner_dragging = True
         self.update_coords(self.ix, self.iy, corner_x, corner_y)
@@ -981,19 +949,7 @@ class Bbox:
             distances_array = np.linalg.norm(bbox_cornenrs_matrix-cursor_corner_arr, axis=1)
             nearest_corner_idx = np.argmin(distances_array)
             self.ix, self.iy = bbox_cornenrs_matrix[nearest_corner_idx]
-            '''
-            dist00 = np.linalg.norm([x0-corner_x, y0-corner_y])
-            dist01 = np.linalg.norm([x0-corner_x, y1-corner_y])
-            dist10 = np.linalg.norm([x1-corner_x, y0-corner_y])
-            dist11 = np.linalg.norm([x1-corner_x, y1-corner_y])
-            #nearest_corner_idx = np.argmin([dist00, dist01, dist10, dist11])
-            if dist00 <= dist11:
-                self.ix = x0
-                self.iy = y0
-            else:
-                self.ix = x1
-                self.iy = y1
-            '''
+            
 
             self.is_bbox_creation = True
         self.update_coords(self.ix, self.iy, corner_x, corner_y)

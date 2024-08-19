@@ -426,6 +426,9 @@ class TrackerWindow(QMainWindow):
         open_file.setShortcut('Ctrl+O')
         #openFile.setStatusTip('Open new File')
         open_file.triggered.connect(self.open_file)
+        close_file = QAction('Close', self)
+        close_file.triggered.connect(self.close_video)
+
 
         change_detector = QAction('Change Detector Type', self)
         change_detector.triggered.connect(self.change_detector)
@@ -435,8 +438,8 @@ class TrackerWindow(QMainWindow):
         fileMenu = menubar.addMenu('&File')
         editMenu = menubar.addMenu('&Edit')
         fileMenu.addAction(open_file)
+        fileMenu.addAction(close_file)
         editMenu.addAction(change_detector)
-        
 
         # выстраивание разметки приложения
         self.grid = QGridLayout()
@@ -1166,17 +1169,18 @@ class TrackerWindow(QMainWindow):
         Сохраняет рамки, закрывает поток чтения изображения и делает объект изображения с рамками пустым
         '''
 
-        if self.frame_with_boxes is not None:
-            self.save_labels()
+        # закрываем поток, который отображает кадры видео
         self.close_imshow_thread()
-        self.frame_with_boxes = None
-        self.reset_display()
+        # обнуляем все праметры
+        self.set_params_to_default()
+        # обновляем трекер
+        self.reset_table()
+        self.reset_tracker()
 
     def read_persons_description(self):
         '''
-        
+        Чтение файла txt и заполнение таблицы с объектами, которые надо отслеживать
         '''
-        
         if not os.path.isfile(self.path_to_persons_descr):
             return 'no file'
         with open(self.path_to_persons_descr, encoding='utf-8') as fd:
@@ -1194,7 +1198,38 @@ class TrackerWindow(QMainWindow):
             self.classes_with_description_table.setItem(idx, 0, QTableWidgetItem(obj_descr))
             self.classes_with_description_table.setItem(idx, 1, QTableWidgetItem(f'person,{idx}'))
             
-    
+    def open_video(self):
+        # закрываем поток, который отображает кадры видео
+        self.close_imshow_thread()
+        # обнуляем все праметры
+        self.set_params_to_default()
+        # обновляем трекер
+        self.reset_table()
+        self.reset_tracker()
+        # обнуляем список классов в видео, когда загружаем новое
+        #self.visible_classes_list_widget.clear()
+        # получаем абсолютный путь до файла
+        title = 'Open video'
+
+        # записываем в файл settings.json путь до папки с последним открытым файлом, чтобы при следующем открытии заново не искать нужный файл
+        try:
+            last_opened_folder_path = self.settings_dict['last_opened_folder']
+        except KeyError:
+            last_opened_folder_path = '/home'
+
+        
+        # фильтр разрешений файлов
+        file_filter = 'Videos (*.mp4 *.wmw *.avi *.mpeg)'
+        # запускаем окно поиска файлов
+        open_status_tuple = QFileDialog.getOpenFileName(self, title, last_opened_folder_path, file_filter)
+        path = open_status_tuple[0]
+        if len(path) == 0:
+            return
+
+        # переформатируем путь в соответствии со знаком-разделителем путей операционной системы
+        path = os.sep.join(path.split('/'))
+        path_to_folder, name = os.path.split(path)
+        return
         
     def open_file(self):
         # закрываем поток, который отображает кадры видео
@@ -1294,7 +1329,7 @@ class TrackerWindow(QMainWindow):
 
         self.window_name = name
         
-        # создаем объект BboxFrame, позволяющий отображать и изменять локализационные рамки на кадре видео
+        # создаем объект BboxFrameTracker, позволяющий отображать и изменять локализационные рамки на кадре видео
         self.frame_with_boxes = BboxFrameTracker(img=frame)
         
         # Подготавливаем и запускаем отдельный поток, в котором будет отображаться кадр с рамками
