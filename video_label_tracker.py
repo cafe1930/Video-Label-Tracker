@@ -543,7 +543,9 @@ class TrackerWindow(QMainWindow):
 
 
     def set_params_to_default(self):
+        # объект для перехода между кадрами видео и чтения кадров
         self.video_capture = None
+        # путь до папки, где хранится видео и папка, куда записываются рамки
         self.path_to_labelling_folder = None
         self.paths_to_labels_list = []
         self.path_to_video = None
@@ -552,17 +554,11 @@ class TrackerWindow(QMainWindow):
         self.img_rows = None
         self.img_cols = None
 
-        # наверное, лучше хранить все рамки в списке, что должно чуть-чуть ускорить обработку
-        self.all_frames_bboxes_list = []
-
         self.is_autoplay = False
 
         self.set_tracking_params_to_default()
 
         self.autosave_mode = False
-
-        # список с видимыми рамками. Это костыль, т.к. QListWidget почему-то не сохраняет выделенными строки
-        self.temp_bboxes_list = []
 
         #self.reset_table()
 
@@ -594,7 +590,7 @@ class TrackerWindow(QMainWindow):
                     self.reset_tracker()
                     self.read_persons_description()
 
-                    self.read_frame(direction='forward')
+                    self.read_frame()
 
 
     def reset_tracker_and_set_frame_button_handling(self):
@@ -628,7 +624,7 @@ class TrackerWindow(QMainWindow):
         self.reset_tracker()
         self.read_persons_description()
 
-        self.read_frame(direction='forward')
+        self.read_frame()
 
         
 
@@ -682,7 +678,7 @@ class TrackerWindow(QMainWindow):
             = self.update_registered_and_tracking_objects_dicts('raw')
         self.reset_tracker()
 
-        self.read_frame(direction='forward')
+        self.read_frame()
 
 
     def register_persons_handling(self):
@@ -766,8 +762,8 @@ class TrackerWindow(QMainWindow):
                 # надо удалить элемент с тем же сзначением
                 key_idx = list(self.current_frame_raw_bbox_name2registered_bbox_name_dict.values()).index(obj_descr)
                 bbox_to_remove = list(self.current_frame_raw_bbox_name2registered_bbox_name_dict.keys())[key_idx]
-                # жуткий костыль!!! строка '(R)' есть признак того, что рамка сгенерирована автоматически
-                if '(R)' not in bbox_to_remove:
+                # жуткий костыль!!! строка '(AG)' есть признак того, что рамка сгенерирована автоматически
+                if '(AG)' not in bbox_to_remove:
                     continue
                 removed = self.current_frame_raw_bbox_name2registered_bbox_name_dict.pop(bbox_to_remove, None)
             registered_bbox_name = self.obj_descr2registered_bbox_dict[obj_descr]
@@ -812,6 +808,10 @@ class TrackerWindow(QMainWindow):
   
     
     def keyPressEvent(self, event):
+        '''
+        Реализация перехода между кадрами посредством клавиш на клавиатуре "<", ">" в разных раскладках,
+        а также авторовоспроизведения 30 кадров посредством клавиши "]"
+        '''
         if event.text() == '.' or event.text().lower() == 'ю':
             self.next_frame_button_handling()
             return
@@ -826,12 +826,14 @@ class TrackerWindow(QMainWindow):
 
     def update_registered_and_tracking_objects_dicts(self, update_source):
         '''
-        update_type:str - на основании какого списка рамок делается обновление
+        update_source:str - на основании какого списка рамок делается обновление. Возможные варианты: ['raw', 'raw_and_tracked', '']
         '''
         
         # список, содержащий рамки для отображения
         displaying_bboxes_dict = {}
+        # новые отслеживаемые рамки
         new_tracking_bboxes_dict = {}
+        # новые зарегистрированные рамки
         new_registered_bboxes_dict = {}
         
         if update_source == 'raw':
@@ -847,6 +849,7 @@ class TrackerWindow(QMainWindow):
                     # записываем в словарь отображаемых рамок автоматически сгенерированную рамку
                     displaying_bboxes_dict[raw_bbox_name] = raw_bbox
                     continue
+                
                 class_name, id = corresponding_registered_name.split(',')
                 id = int(id)
                 # проверяем, находится ли текущая рамка в перечне отслеживаемых рамок
@@ -871,7 +874,7 @@ class TrackerWindow(QMainWindow):
             displaying_bboxes_dict = self.tracked_and_raw_bboxes_dict
             for raw_tracked_bbox_name, raw_tracked_bbox in self.tracked_and_raw_bboxes_dict.items():
                 class_name, id = raw_tracked_bbox_name.split(',')
-                if '(R)' not in raw_tracked_bbox_name:
+                if '(AG)' not in raw_tracked_bbox_name:
                     registered_bbox = deepcopy(raw_tracked_bbox)
                     registered_bbox.class_name = class_name
                     registered_bbox.id = id
@@ -894,7 +897,7 @@ class TrackerWindow(QMainWindow):
 
     def update_tracking_objects_set_from_drawn_bbox(self):
         rows_num = self.classes_with_description_table.rowCount()
-        tracked_bboxes_names = [name for name in self.tracked_and_raw_bboxes_dict.keys() if '(R)' not in name]
+        tracked_bboxes_names = [name for name in self.tracked_and_raw_bboxes_dict.keys() if '(AG)' not in name]
         for row_idx in range(rows_num):
             obj_descr_item = self.classes_with_description_table.item(row_idx, 0)
             registered_bbox_name_item = self.classes_with_description_table.item(row_idx, 1)
@@ -942,15 +945,7 @@ class TrackerWindow(QMainWindow):
         # потенциально медленная операция
         self.registered_bboxes_dict, self.tracking_bboxes_dict, self.tracked_and_raw_bboxes_dict \
             = self.update_registered_and_tracking_objects_dicts('raw')
-        """
-        print('+++++++++TABLE_CLICK+++++++++')
-        print(f'tracking_bboxes_names_set:\n{self.tracking_bboxes_names_set}')
-        print(f'raw_bboxes_dict:\n{self.raw_bboxes_dict}\n')
-        print(f'registered_bboxes_dict:\n{self.registered_bboxes_dict}')
-        print(f'tracking_bboxes_dict:\n{self.tracking_bboxes_dict}')
-        print(f'all_frames_raw_bbox_name2registered_bbox_name_dict: {self.all_frames_raw_bbox_name2registered_bbox_name_dict}')
-        print('+++++++++++++++++++++++++++++')
-        """
+
 
     def search_first_appearance_button_slot(self):
         '''
@@ -998,7 +993,7 @@ class TrackerWindow(QMainWindow):
                     continue
                 if class_name == searching_class_name:
                     self.current_frame_idx = frame_idx
-                    self.read_frame(direction='forward')
+                    self.read_frame()
                     show_info_message_box(
                         window_title="Class search info",
                         buttons=QMessageBox.Ok,
@@ -1017,11 +1012,12 @@ class TrackerWindow(QMainWindow):
         
         self.current_frame_display.display(current_frame_idx)
         self.current_frame_idx = current_frame_idx
-        self.read_frame(direction='forward')
+        self.read_frame()
 
     def disable_add_tracking_slot(self):
         '''
         Обработчик checkbox, отвечающего за автоматическое сохранение кадра при переходе на новый
+        ТУТ ПОТЕНЦИАЛЬНО СКРЫТА ОШИБКА!!!
         '''
         self.autosave_mode = self.disable_add_tracking.isChecked()
         print(self.disable_add_tracking.isChecked())
@@ -1077,22 +1073,7 @@ class TrackerWindow(QMainWindow):
         print(f'tracked_and_raw {self.tracked_and_raw_bboxes_dict}')
         print('|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||')
         '''
-    
-    def update_visible_boxes_on_selection_slot(self, item):
-        '''
-        Обновление видимых рамок в кадре. Контролируется посредством visible_classes_list_widget.
-        Если элемент выделен, то он отображается в кадре.
-        '''
-        return
 
-
-    def load_labels_from_txt(self):
-        '''
-        Загружаем из txt-файлов координаты рамок и информацию о классах. 
-        Информация загружается в self.frame_with_boxes, 
-        self.visible_classes_list_widget не изменяется
-        '''
-        raise NotImplementedError
 
     def reset_tracker(self):
         '''
@@ -1104,42 +1085,6 @@ class TrackerWindow(QMainWindow):
 
     def update_bboxes_on_frame(self):
         self.tracked_and_raw_bboxes_dict = self.frame_with_boxes.bboxes_dict
-        
-
-    def update_visible_classes_list(self):
-        '''
-        обновление списка рамок. 
-        Информация о рамках берется из списка рамок, хранящегося в self.frame_with_boxes
-        '''
-
-        # определяем количество элементов в списке
-        qlist_len = self.visible_classes_list_widget.count()
-
-        new_list = []
-        for bbox_name, bbox in self.frame_with_boxes.bboxes_dict.items():
-            class_name = bbox.class_name
-            sample_idx = bbox.id
-            is_selected = bbox.is_visible
-
-            displayed_name = f'{class_name},{sample_idx}'
-            item = QListWidgetItem(displayed_name)
-            
-            for item_idx in range(qlist_len):
-                prev_item = self.visible_classes_list_widget.item(item_idx)
-
-                prev_data = prev_item.data(0)
-                if prev_data == displayed_name:
-                    item = prev_item
-                    break
-
-            new_list.append({'data': item.data(0), 'is_selected': is_selected})
-   
-        # обновление списка классов?
-        self.visible_classes_list_widget.clear()
-        for bbox_idx, data_dict in enumerate(new_list):
-            item = QListWidgetItem(data_dict['data'])
-            self.visible_classes_list_widget.addItem(item)
-            self.visible_classes_list_widget.item(bbox_idx).setSelected(data_dict['is_selected'])
         
             
     def reset_display(self):
@@ -1339,7 +1284,7 @@ class TrackerWindow(QMainWindow):
         self.imshow_thread.start()
 
         # сразу открываем видео
-        self.read_frame(direction='forward')
+        self.read_frame()
 
     def close_imshow_thread(self):
         if self.imshow_thread.isRunning():
@@ -1380,8 +1325,6 @@ class TrackerWindow(QMainWindow):
         
         # сохраняем все рамки
         if self.current_frame_idx > -1:
-            #if self.autosave_mode:
-            #    self.save_labels()
             pass
         
         # если не выбраны рамки для трекинга, то 
@@ -1407,7 +1350,7 @@ class TrackerWindow(QMainWindow):
         # сохраняем список рамок, прежде чем прочитать следующий кадр
         self.previous_tracked_and_raw_bboxes_dict = deepcopy(self.tracked_and_raw_bboxes_dict)
 
-        self.read_frame(direction='forward')
+        self.read_frame()
 
         # при переходе на новый кадр обнуляем словарь для отображения  
         # имен сгенерированных рамок на имена зарегистирированных рамок
@@ -1432,7 +1375,7 @@ class TrackerWindow(QMainWindow):
         # сохраняем список рамок, прежде чем прочитать следующий кадр
         self.previous_tracked_and_raw_bboxes_dict = deepcopy(self.tracked_and_raw_bboxes_dict)
 
-        self.read_frame(direction='backward')
+        self.read_frame()
 
         # при переходе на новый кадр обнуляем словарь для отображения  
         # имен сгенерированных рамок на имена зарегистирированных рамок
@@ -1493,7 +1436,11 @@ class TrackerWindow(QMainWindow):
         return automatically_tracked_bbox
 
         
-    def compare_tracked_and_raw_bboxes_dicts(self):
+    def compare_prev_and_current_tracked_and_raw_bboxes_dicts(self):
+        '''
+        Сравнение  текущего словаря с отслеживаемыми и сгенерированными рамками с предыдущим
+        Савнение выполняется по именам рамок
+        '''
         current_bboxes_names_set = set(self.tracked_and_raw_bboxes_dict.keys())
         prev_bboxes_names_set = set(self.previous_tracked_and_raw_bboxes_dict.keys())
         new_bboxes_names = current_bboxes_names_set - prev_bboxes_names_set
@@ -1510,8 +1457,8 @@ class TrackerWindow(QMainWindow):
         # смотрим, какие отслеживаемые рамки исчезли.
         # Нас не очень интересует, какие не отслеживаемые рамки исчезли
         for disappeared_bbox_name in disappeared_bboxes_names:
-            # (R) - это признак автоматически сгенерированной рамки
-            if '(R)' not in disappeared_bbox_name:
+            # (AG) - это признак автоматически сгенерированной рамки
+            if '(AG)' not in disappeared_bbox_name:
                 # сначала пытаемся выполнить "альтерантивный" трекинг
                 new_bbox_dict = self.try_alternative_tracking(disappeared_bbox_name)
                 if len(new_bbox_dict) != 0:
@@ -1600,7 +1547,7 @@ class TrackerWindow(QMainWindow):
                 tracked_num += 1
         return tracked_num
 
-    def read_frame(self, direction):
+    def read_frame(self):
         # проверка условий возможности чтения кадра: отсутствие объекта, отвечающего за чтение кадров видео
         # или номер текущего кадра превышает количество кадров в видео
         if self.video_capture is None or self.current_frame_idx >= self.frame_number:
@@ -1610,7 +1557,7 @@ class TrackerWindow(QMainWindow):
             self.current_frame_idx = 0
             return
         
-        # устанавливаем положение слайдера
+        # устанавливаем значение дисплея, отображающего счетчик кадров
         self.set_display_value(self.current_frame_idx)
         
         # выставляем в объекте чтения кадров позицию текущего кадра, чтобы иметь возможность двигаться не только вперед, но и назад
@@ -1638,29 +1585,27 @@ class TrackerWindow(QMainWindow):
                     )
             except:
                 pass
-                                  
+
+            # обновляем зарегистрированные, отслеживаемые и совместно отслеживаемые и сгенерированные рамки          
             self.registered_bboxes_dict, self.tracking_bboxes_dict, self.tracked_and_raw_bboxes_dict \
-                = self.update_registered_and_tracking_objects_dicts('raw')
+                = self.update_registered_and_tracking_objects_dicts(update_source='raw')
             
+            # присваиваем объекту, обрабатывающему кадр с рамками, tracked_and_raw_bboxes_dict
             self.frame_with_boxes.bboxes_dict = self.tracked_and_raw_bboxes_dict
 
 
             # сравниваем рамки текущего кадра с рамками предыдущего кадра
-            self.compare_tracked_and_raw_bboxes_dicts()
+            # В результате получается 
+            self.compare_prev_and_current_tracked_and_raw_bboxes_dicts()
 
+            # еще раз присваиваем объекту, обрабатывающему кадр с рамками, tracked_and_raw_bboxes_dict (ЗОЧЕМ?)
             self.frame_with_boxes.bboxes_dict = self.tracked_and_raw_bboxes_dict
             
-            '''
-            print('-------------READ_FRAME-------------')
-            print(f'tracking_bboxes_names_set:\n{self.tracking_bboxes_names_set}')
-            print(f'raw_bboxes_dict:\n{self.raw_bboxes_dict}\n')
-            print(f'registered_bboxes_dict:\n{self.registered_bboxes_dict}')
-            print(f'tracking_bboxes_dict:\n{self.tracking_bboxes_dict}')
-            print(f'all_frames_raw_bbox_name2registered_bbox_name_dict: {self.all_frames_raw_bbox_name2registered_bbox_name_dict}')
-            print('-------------------------------')
-            '''     
             
     def stop_showing(self):
+        '''
+        Прекращение демонстрации кадров видео в окне opencv
+        '''
         if self.is_showing:
             self.is_showing = False
             cv2.destroyAllWindows()
@@ -1708,11 +1653,10 @@ class Yolov8Tracker:
         # этот параметр нужен, чтобы рамка строилась не впритык объекту, а захватывала еще некоторую дополнительную область
         bbox_append_value = int(min(img_rows, img_cols)*0.025)
 
-
         bboxes_dict = {}
         for bbox, id in zip(bboxes, ids):
             #class_name = f'{target_class_name}{id:03d}'
-            class_name = f'{target_class_name}(R)'
+            class_name = f'{target_class_name}(AG)'
             x0,y0,x1,y1 = bbox
             # добавляем несколько пикселей, чтобы рамка строилась не впритык
             x0,y0,x1,y1 = x0 - bbox_append_value, y0 - bbox_append_value, x1 + bbox_append_value, y1 + bbox_append_value
