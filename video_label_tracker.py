@@ -23,6 +23,9 @@ from opencv_frames import BboxFrame, BboxFrameTracker, Bbox, process_box_coords,
 from ultralytics import YOLO
 
 def show_info_message_box(window_title, info_text, buttons, icon_type):
+    '''
+    Обертка для вызова диалоговых окон
+    '''
     msg_box = QMessageBox()
     msg_box.setIcon(icon_type)
     msg_box.setWindowTitle(window_title)
@@ -31,6 +34,9 @@ def show_info_message_box(window_title, info_text, buttons, icon_type):
     return msg_box.exec()
 
 class One2OneMapping:
+    '''
+    Реализация однозначных отображений. Нужен для работы рамок
+    '''
     def __init__(self, mapping={}):
         self.inverse_mapping_dict = {v: k for k, v in mapping.items()}
         self.forward_mapping_dict = {v: k for k, v in self.inverse_mapping_dict.items()}
@@ -140,8 +146,6 @@ class LabelNewBoxDialog(QDialog):
 
 
 class RegisterPersonsDialog(QDialog):
-    '''
-    '''
     def __init__(self, raw_bbox2registered_bbox_mapping,  obj_descr2registered_bbox_dict, raw_bboxes_dict):
         '''
         Данное диалоговое окно служит для выбора человека, движение которого мы отслеживаем
@@ -228,6 +232,9 @@ class RegisterPersonsDialog(QDialog):
 
 class SetFrameDialog(QDialog):
     def __init__(self, frames_num):
+        '''
+        Диалоговое окно для перехода на заданный кадр видео
+        '''
         super().__init__()
         self.frames_num = frames_num
         self.frame_idx = None
@@ -290,6 +297,9 @@ class SetFrameDialog(QDialog):
         
 class SelectDetector(QDialog):
     def __init__(self):
+        '''
+        Диалоговое окно для выбора модели детектора
+        '''
         super().__init__()
         detectors_names_list = ['yolov8n', 'yolov8s', 'yolov8m', 'yolov8l', 'yolov8x']
         self.combobox = QComboBox()
@@ -312,8 +322,12 @@ class SelectDetector(QDialog):
 
 class TrackerWindow(QMainWindow):
     def __init__(self, screen_width, screen_height, tracker_type='yolov8x.pt'):
+        '''
+        Главный класс приложения
+        '''
         super().__init__()       
 
+        # т.к. обнулять параметры надо в нескольких местах, эта процедура обернуты в один метод
         self.set_params_to_default()
 
         self.tracker_type = 'yolov8x.pt' if torch.cuda.is_available() else 'yolov8s.pt'
@@ -580,19 +594,6 @@ class TrackerWindow(QMainWindow):
                     self.read_frame(direction='forward')
 
 
-
-    '''
-    def enable_tracking_checkbox_handling(self):
-        
-        if self.enable_tracking_checkbox.checkState() == 0:
-            # надо предупредить о том, что надо сохоранить файлы
-            # !!!!!!
-
-            self.tracker = None
-        else:
-            if self.tracker is None:
-                self.tracker = Tracker()
-    '''
     def reset_tracker_and_set_frame_button_handling(self):
         # Вызов диалогового окна, куда передается self.frame_number
         #self.frame_number
@@ -949,6 +950,9 @@ class TrackerWindow(QMainWindow):
         """
 
     def search_first_appearance_button_slot(self):
+        '''
+        
+        '''
         self.is_autoplay = False
         # Сначала надо проверить, что выделен лишь один класс
         qlist_len = self.visible_classes_list_widget.count()
@@ -1628,24 +1632,24 @@ class TrackerWindow(QMainWindow):
 
 class Yolov8Tracker:
     def __init__(self, model_type='yolov8n.pt'):
+        '''
+        Класс-обертка для трэкера. Нужна для того, чтобы совместить выполнение трекинга и присвоение имен классов детектируемых объектов
+        '''
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        # debug!
-        #device = torch.device('cpu')
         
         print(f'We are using {device} device for tracking')
         print()
         self.tracker = YOLO(model_type).to(device)
         # словарь для перевода имени класса в номер метки
+        # self.tracker.names - словарь, содержащий пары {индекс: имя_класса}
         self.name2class_idx = {val: key for key, val in self.tracker.names.items()}
-        
-        # словарь индексов, кторые получаются в результате трекинга
-        self.raw_tracking_indices_dict = {}
-        # итоговый словарь индексов объектов
-        self.resulting_indices_dict = {}
+
 
     def track(self, target_class_name, *yolo_args, **yolo_kwargs):
         '''
         target_class_name - имя класса, который мы собираемся детектировать
+        Return: 
+            bboxes_dict - словарь, который хранит 
         '''
         # выполнение трекинга 
         results = self.tracker.track(*yolo_args, **yolo_kwargs)[0]
@@ -1668,6 +1672,7 @@ class Yolov8Tracker:
         
         # этот параметр нужен, чтобы рамка строилась не впритык объекту, а захватывала еще некоторую дополнительную область
         bbox_append_value = int(min(img_rows, img_cols)*0.025)
+
 
         bboxes_dict = {}
         for bbox, id in zip(bboxes, ids):
