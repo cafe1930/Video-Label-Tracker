@@ -18,7 +18,7 @@ import numpy as np
 import time
 import torch
 
-from opencv_frames import BboxFrameTracker, Bbox, process_box_coords, xywh2xyxy, compute_bbox_area
+from new_opencv_frames import BboxFrameTracker, Bbox, process_box_coords, xywh2xyxy, compute_bbox_area
 
 from ultralytics import YOLO
 
@@ -56,8 +56,6 @@ class One2OneMapping:
     
     def __repr__(self):
         return f'forward map: {self.forward_mapping_dict}, inverse map: {self.inverse_mapping_dict}'
-
-
 
 class LabelNewBoxDialog(QDialog):
     def __init__(self, current_bbox, obj_descr2registered_bbox_dict, tracked_and_raw_bboxes_dict):
@@ -246,7 +244,6 @@ class SetFrameIdxDialog(QDialog):
         self.save_and_exit_button.clicked.connect(self.save_and_exit)
         self.exit_without_save_button.clicked.connect(self.exit_without_save)
         
-
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.text_line)
 
@@ -360,7 +357,6 @@ class AddTrackingObjectDialog(QDialog):
         self.object_descr = ''
         self.close()
 
-
 class TrackerWindow(QMainWindow):
     def __init__(self, screen_width, screen_height, tracker_type='yolov8x.pt'):
         '''
@@ -393,50 +389,36 @@ class TrackerWindow(QMainWindow):
         bboxes_correction_info = QLabel(text=bboxes_correction_info_str)
         next_frame_button = QPushButton("След. кадр >")
         previous_frame_button = QPushButton("< Пред. кадр")
-        autoplay_button = QPushButton("Autoplay 30 frames")
-        self.disable_add_tracking = QCheckBox('Откл. доп трекинг')
+        #autoplay_button = QPushButton("Autoplay 30 frames")
+        #self.disable_add_tracking = QCheckBox('Откл. доп трекинг')
         self.show_tracked_checkbox = QCheckBox('Показать отслеживаемые объекты')
 
-        register_objects_button = QPushButton('Регистрация нового объекта')
-        cancell_register_objects_button = QPushButton('Отмена регистрации всех объектов')
-        add_new_object_button = QPushButton('Добавить новый объект')
+        #register_objects_button = QPushButton('Регистрация нового объекта')
+        #cancell_register_objects_button = QPushButton('Отмена регистрации всех объектов')
+        #add_new_object_button = QPushButton('Добавить новый объект')
         
-        reset_tracker_and_set_frame_button = QPushButton('Сбросить трекер и перейти на заданный кадр')
+        #reset_tracker_and_set_frame_button = QPushButton('Сбросить трекер и перейти на заданный кадр')
         
-        show_raw_button = QPushButton('Показать только автоматически сгенерированные рамки')
-        show_registered_button = QPushButton('Показать все зарегистрированные рамки')
-        show_tracked_button = QPushButton('Показать все отслеживаемые рамки')
+        #show_raw_button = QPushButton('Показать только автоматически сгенерированные рамки')
+        #show_registered_button = QPushButton('Показать все зарегистрированные рамки')
+        #show_tracked_button = QPushButton('Показать все отслеживаемые рамки')
         show_tracked_and_raw_button = QPushButton('Показать отслеживаемые и сгенерированные рамки')
-        #show_tracking_button = QPushButton('Показать отслеживаемые рамки')
+        
 
-        #self.enable_tracking_checkbox = QCheckBox('Enable automatic tracking')
-
-        self.classes_with_description_table = QTableWidget()
+        #self.classes_with_description_table = QTableWidget()
         #self.classes_with_description_table.setColumnCount(2)
-        self.classes_with_description_table.setColumnCount(3)
+        #self.classes_with_description_table.setColumnCount(3)
         #self.classes_with_description_table.setW
         #self.classes_with_description_table.setHorizontalHeaderLabels(["Описание объекта", "Обозначение\nрамки"])
-        self.classes_with_description_table.setHorizontalHeaderLabels(["№", "Класс", "Описание объекта"])
-        self.classes_with_description_table.setColumnWidth(0, 30)
-        self.classes_with_description_table.setColumnWidth(1, 70)
-        self.classes_with_description_table.setColumnWidth(2, 170)
-        self.classes_with_description_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        #self.classes_with_description_table.setHorizontalHeaderLabels(["№", "Класс", "Описание объекта"])
+        #self.classes_with_description_table.setColumnWidth(0, 30)
+        #self.classes_with_description_table.setColumnWidth(1, 70)
+        #self.classes_with_description_table.setColumnWidth(2, 170)
+        #self.classes_with_description_table.setEditTriggers(QTableWidget.NoEditTriggers)
         
-        
-        #search_first_appearance_button = QPushButton("Search for first appearance")
-
         # чтение списка классов из json
         with open('settings.json', 'r', encoding='utf-8') as fd:
             self.settings_dict = json.load(fd)
-
-        self.class_names_list = self.settings_dict['classes']
-        
-        #self.classes_combobox = QComboBox(self)
-        #self.classes_combobox.addItems(self.class_names_list)
-
-        # список отображаемых рамок
-        #self.visible_classes_list_widget = QListWidget()
-        #self.visible_classes_list_widget.setSelectionMode(QAbstractItemView.MultiSelection)
 
         self.current_frame_label = QLabel()
         self.current_frame_label.setText('Идекс текущего кадра:')
@@ -444,33 +426,29 @@ class TrackerWindow(QMainWindow):
         self.frames_num_label = QLabel()
         self.frames_num_label.setText('Общее количество кадров:')
         self.all_frames_display = QLCDNumber()
-        #self.frame_slider = QSlider(Qt.Horizontal)
         self.reset_display()
-        #self.frame_slider.valueChanged.connect(self.display_frame_position)
 
         # присоединение к обработчику события
         next_frame_button.clicked.connect(self.next_frame_button_handling)
         previous_frame_button.clicked.connect(self.previous_frame_button_handling)
-        autoplay_button.clicked.connect(self.autoplay)
-        register_objects_button.clicked.connect(self.register_persons_handling)
-        add_new_object_button.clicked.connect(self.add_new_person_handling)
-        cancell_register_objects_button.clicked.connect(self.cancell_register_objects_button_handling)
-        reset_tracker_and_set_frame_button.clicked.connect(self.reset_tracker_and_set_frame_button_handling)
-        show_raw_button.clicked.connect(self.show_raw_button_handling)
-        show_registered_button.clicked.connect(self.show_registered_button_handing)
-        show_tracked_button.clicked.connect(self.show_tracked_button_handling)
+        #autoplay_button.clicked.connect(self.autoplay)
+        #register_objects_button.clicked.connect(self.register_persons_handling)
+        #add_new_object_button.clicked.connect(self.add_new_person_handling)
+        #cancell_register_objects_button.clicked.connect(self.cancell_register_objects_button_handling)
+        #reset_tracker_and_set_frame_button.clicked.connect(self.reset_tracker_and_set_frame_button_handling)
+        #show_raw_button.clicked.connect(self.show_raw_button_handling)
+        #show_registered_button.clicked.connect(self.show_registered_button_handing)
+        #show_tracked_button.clicked.connect(self.show_tracked_button_handling)
         show_tracked_and_raw_button.clicked.connect(self.show_tracked_and_raw_button_handling)
-        self.disable_add_tracking.stateChanged.connect(self.disable_add_tracking_slot)
+        #self.disable_add_tracking.stateChanged.connect(self.disable_add_tracking_slot)
         self.show_tracked_checkbox.stateChanged.connect(self.show_tracked_checkbox_slot)
 
-        #self.classes_combobox.currentTextChanged.connect(self.update_current_box_class_name)
-        self.classes_with_description_table.cellClicked.connect(self.table_cell_click_handling)
-        self.classes_with_description_table.cellEntered.connect(self.table_cell_click_handling)
+        #self.classes_with_description_table.cellClicked.connect(self.table_cell_click_handling)
+        #self.classes_with_description_table.cellEntered.connect(self.table_cell_click_handling)
 
         # действия для строки меню
         open_file = QAction('Open', self)
         open_file.setShortcut('Ctrl+O')
-        #openFile.setStatusTip('Open new File')
         open_file.triggered.connect(self.open_file)
         close_file = QAction('Close', self)
         close_file.triggered.connect(self.close_video)
@@ -497,35 +475,31 @@ class TrackerWindow(QMainWindow):
         self.prev_next_layout = QHBoxLayout()
 
         self.bboxes_display_control_layout.addWidget(bboxes_correction_info)
-        self.bboxes_display_control_layout.addWidget(show_raw_button)
-        self.bboxes_display_control_layout.addWidget(show_registered_button)
-        self.bboxes_display_control_layout.addWidget(show_tracked_button)
+        #self.bboxes_display_control_layout.addWidget(show_raw_button)
+        #self.bboxes_display_control_layout.addWidget(show_registered_button)
+        #self.bboxes_display_control_layout.addWidget(show_tracked_button)
         self.bboxes_display_control_layout.addWidget(show_tracked_and_raw_button)
-        #self.bboxes_display_control_layout.addWidget(reset_tracker_and_set_frame_button)
         self.bboxes_display_control_layout.addStretch(1)
 
         self.prev_next_layout.addWidget(previous_frame_button)
         self.prev_next_layout.addWidget(next_frame_button)
 
-        #self.control_layout.addWidget(self.enable_tracking_checkbox)
         self.control_layout.addWidget(self.current_frame_label)
         self.control_layout.addWidget(self.current_frame_display)
         self.control_layout.addWidget(self.frames_num_label)
         self.control_layout.addWidget(self.all_frames_display)
-        self.control_layout.addWidget(reset_tracker_and_set_frame_button)
+        #self.control_layout.addWidget(reset_tracker_and_set_frame_button)
 
-        #self.control_layout.addWidget(self.frame_slider)
-        self.control_layout.addWidget(self.disable_add_tracking)
-        self.control_layout.addWidget(autoplay_button)
+        #self.control_layout.addWidget(self.disable_add_tracking)
+        #self.control_layout.addWidget(autoplay_button)
         self.control_layout.addLayout(self.prev_next_layout)
-        #
 
         # пока что спрячем разворачивающийся список классов...
-        self.displaying_classes_layout.addWidget(self.classes_with_description_table)
+        #self.displaying_classes_layout.addWidget(self.classes_with_description_table)
 
-        self.displaying_classes_layout.addWidget(register_objects_button)
-        self.displaying_classes_layout.addWidget(cancell_register_objects_button)
-        self.displaying_classes_layout.addWidget(add_new_object_button)
+        #self.displaying_classes_layout.addWidget(register_objects_button)
+        #self.displaying_classes_layout.addWidget(cancell_register_objects_button)
+        #self.displaying_classes_layout.addWidget(add_new_object_button)
         
         self.horizontal_layout.addLayout(self.bboxes_display_control_layout)
         self.horizontal_layout.addLayout(self.displaying_classes_layout)
@@ -1296,29 +1270,7 @@ class TrackerWindow(QMainWindow):
 
         # переформатируем путь в соответствии со знаком-разделителем путей операционной системы
         path = os.sep.join(path.split('/'))
-        path_to_folder, name = os.path.split(path)
-
-        txt_name = '.'.join(name.split('.')[:-1]) + '_persons_descr.txt'
-        self.path_to_persons_descr = os.path.join(path_to_folder, txt_name)
-        
-        #!!!!
-        # это пока что не надо
-        ret_status = self.read_persons_description()
-        if ret_status == 'no file':
-            show_info_message_box(
-                window_title="Persons file description error",
-                info_text=f"Person description for {name} video does not exist. Please describe persons and fill out the file {name}_persons_descr.txt",
-                buttons=QMessageBox.Ok,
-                icon_type=QMessageBox.Critical)
-            return
-        elif ret_status == 'empty descr':
-            show_info_message_box(
-                window_title="Persons file description error",
-                info_text=f"Person description for {name} video is empty. Please describe persons and fill out the file {name}_persons_descr.txt",
-                buttons=QMessageBox.Ok,
-                icon_type=QMessageBox.Critical)
-            return
-        
+        path_to_folder, name = os.path.split(path)        
 
         # обновляем путь до последнего открытого файла и перезаписываем файл конфигурации
         self.settings_dict['last_opened_folder'] = path_to_folder
@@ -1346,9 +1298,10 @@ class TrackerWindow(QMainWindow):
         # выясняем количество кадров
         self.frame_number = int(self.video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
 
+        # отображаем общее количество кадров на специальном индикаторе
         self.all_frames_display.display(self.frame_number)
 
-        # выясняем размер кадра
+        # выясняем размер (кол-во строк и столбцов) кадра
         self.img_rows, self.img_cols = frame.shape[:2]
 
         # выставляем счетчик кадров: если уже были сформированы рамки, то счетчик кадров делаем равным номеру последнего кадра 
@@ -1357,11 +1310,7 @@ class TrackerWindow(QMainWindow):
         else:
             self.current_frame_idx = 0
         
-        #self.current_frame_idx = 0
-
-        # выставляем значение слайдера кадров
-        #self.setup_slider_range(max_val=self.frame_number, current_idx=self.current_frame_idx)
-
+        # Записываем имя окна
         self.window_name = name
         
         # создаем объект BboxFrameTracker, позволяющий отображать и изменять локализационные рамки на кадре видео
@@ -1668,7 +1617,7 @@ class TrackerWindow(QMainWindow):
             # выполняем трекинг
             try:
                 self.raw_bboxes_dict = self.tracker.track(
-                    target_class_name='person',
+                    target_class_name='person', #!!!!
                     source=frame,
                     persist=True,
                     verbose=True
@@ -1677,11 +1626,11 @@ class TrackerWindow(QMainWindow):
                 pass
 
             # обновляем зарегистрированные, отслеживаемые и совместно отслеживаемые и сгенерированные рамки          
-            self.registered_bboxes_dict, self.tracking_bboxes_dict, self.tracked_and_raw_bboxes_dict \
-                = self.update_registered_and_tracking_objects_dicts(update_source='raw')
+            #self.registered_bboxes_dict, self.tracking_bboxes_dict, self.tracked_and_raw_bboxes_dict \
+            #    = self.update_registered_and_tracking_objects_dicts(update_source='raw')
             
             # присваиваем объекту, обрабатывающему кадр с рамками, tracked_and_raw_bboxes_dict
-            self.frame_with_boxes.bboxes_dict = self.tracked_and_raw_bboxes_dict
+            self.frame_with_boxes.bboxes_dict = self.raw_bboxes_dict
 
 
             # сравниваем рамки текущего кадра с рамками предыдущего кадра
@@ -1723,19 +1672,20 @@ class Yolov8Tracker:
         '''
         # выполнение трекинга 
         results = self.tracker.track(*yolo_args, **yolo_kwargs)[0]
+        
         # получение координат рамок
         bboxes = results.boxes.xyxy.long().numpy()
         # получение индексов объектов
         ids = results.boxes.id.long().numpy()
         
         # получение списка детектированных классов
-        detected_classes = results.boxes.cls.long().numpy()
+        detected_classes = [self.tracker.names[cls_idx] for cls_idx in results.boxes.cls.long().numpy()]
         # формирование индексов, фильтрующих нужный нам класс детектируемых объектов
-        target_classes_filter = detected_classes == self.name2class_idx[target_class_name]
-
+        #target_classes_filter = detected_classes == self.name2class_idx[target_class_name]
+        
         # Фильтрация индексов объектов, рамок
-        ids = ids[target_classes_filter]
-        bboxes = bboxes[target_classes_filter]
+        #ids = ids[target_classes_filter]
+        #bboxes = bboxes[target_classes_filter]
 
         # строки и столбцы изображения нужны для создания объектов рамок
         img_rows, img_cols = results[0].orig_img.shape[:-1]
@@ -1744,9 +1694,14 @@ class Yolov8Tracker:
         bbox_append_value = int(min(img_rows, img_cols)*0.025)
 
         bboxes_dict = {}
-        for bbox, id in zip(bboxes, ids):
+        
+        #print(bboxes)
+        #print(ids)
+        #print(detected_classes)
+
+        for bbox, id, class_name in zip(bboxes, ids, detected_classes):
             #class_name = f'{target_class_name}{id:03d}'
-            class_name = f'{target_class_name}(AG)'
+            displaying_class_name = f'{class_name}(AG)'
             x0,y0,x1,y1 = bbox
             # добавляем несколько пикселей, чтобы рамка строилась не впритык к объекту
             x0,y0,x1,y1 = x0 - bbox_append_value, y0 - bbox_append_value, x1 + bbox_append_value, y1 + bbox_append_value
@@ -1754,13 +1709,23 @@ class Yolov8Tracker:
             x0,y0,x1,y1 = process_box_coords(x0,y0,x1,y1, img_rows, img_cols)
             # пока что оставляем всего лишь один цвет - черный
             color = (0,0,0)
-            is_visible=True
-            bboxes_dict[f'{class_name},{id}'] = Bbox(x0, y0, x1, y1, img_rows, img_cols, class_name, color, id, is_visible)
+            
+            bbox = Bbox(
+                x0, y0, x1, y1,
+                img_rows, img_cols,
+                class_name=displaying_class_name,
+                autogen_idx=id,
+                manual_idx=None,
+                color=color,
+                tracking_type='auto'
+                )
+            print(bbox)
+            bboxes_dict[f'{displaying_class_name},{id}'] = bbox
+            # debug
 
         return bboxes_dict
     
     #def register_bboxes
-
 
 class ImshowThread(QThread):
     '''
@@ -1819,7 +1784,6 @@ class ImshowThread(QThread):
         if self.is_showing:
             self.is_showing = False
             cv2.destroyAllWindows()
-
 
 if __name__ == '__main__':
 

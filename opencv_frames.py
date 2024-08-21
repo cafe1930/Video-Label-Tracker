@@ -521,7 +521,6 @@ class BboxFrameTracker:
         # флаг, сигнализирующий о том, что мы показываем номер рамки одного и того же класса
         self.is_bbox_idx_displayed = True
     
-
     def draw_one_box(self, event, flags, x, y):
         '''
         Создание новой рамки вручную
@@ -566,7 +565,6 @@ class BboxFrameTracker:
         else:
             #self.is_bboxes_changed = False
             self.is_bbox_created = False
-
 
     def correct_rectangle(self, event, flags, bbox_name, x, y):
         rows, cols, channels = self.img.shape
@@ -657,7 +655,6 @@ class BboxFrameTracker:
             #self.is_bboxes_changed = False
             self.is_bboxes_dragged = False
     
-
     def change_class_name(self, event, flags, drawing_bbox_name):
         if event == cv2.EVENT_RBUTTONDOWN:
             if flags & cv2.EVENT_FLAG_CTRLKEY and not flags & cv2.EVENT_FLAG_ALTKEY:
@@ -771,7 +768,10 @@ class BboxFrameTracker:
     def update_bboxes_dict(self, new_bboxes_dict):
         self.bboxes_dict = new_bboxes_dict
 
-    def render_boxes(self):        
+    def render_boxes(self):
+        '''
+        Метод для отображения рамок на экране
+        '''     
         #drawing_img = self.img.copy()
         drawing_img = deepcopy(self.img)
         rows, cols, channels = drawing_img.shape
@@ -832,8 +832,10 @@ class BboxFrameTracker:
                     
         return drawing_img
 
+
 class Bbox:
-    def __init__(self, x0, y0, x1, y1, img_rows, img_cols, class_name, color, sample_idx, is_visible=True, is_additionaly_tracked=False):
+    def __init__(self, x0, y0, x1, y1, img_rows, img_cols, class_name, color, sample_idx, is_visible=True, is_additionaly_tracked=False, tracking_status='no'):
+
         '''
         Класс, описывающий поведение одной локализационной рамки
         x0, y0, x1, y1 - координаты правого верхнего и левого нижнего углов рамки
@@ -841,7 +843,8 @@ class Bbox:
         class_name - имя класса
         color - цвет рамки
         sample_idx - индекс или номер рамки одного и того же класса для отслеживания ситуаций, когда на изображении много объектов одного и того же класса 
-        is_additionaly_tracked - флаг-сигнал для выполнения дополнительного трекинга с использованием трекеров opencv
+        tracking_type:str - тип трэкинга. Возможные варианты ['yolo', 'opencv', 'no']
+        tracking_status:str - тип трэкинга. Возможные варианты ['yolo', 'opencv', 'no']
         '''
 
         # координаты левого верхнего и правого нижнего углов рамки
@@ -879,6 +882,8 @@ class Bbox:
 
         # флаг-сигнал для выполнения дополнительного трекинга 
         self.is_additionaly_tracked = is_additionaly_tracked
+
+        self.tracking_status = tracking_status
 
     def __hash__(self):
         '''
@@ -1043,7 +1048,9 @@ class Bbox:
         class_name = self.class_name
         id = self.id
         return f'{class_name},{id}: {self.coords}, visible={self.is_visible}, is_tracked={self.is_additionaly_tracked}'
-    
+
+
+
 class TrackerBbox(Bbox):
     def __init__(self, x0, y0, x1, y1, img_rows, img_cols, class_name, color, sample_idx, is_visible=True, is_manually_manipulated=True):
         '''
