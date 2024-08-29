@@ -758,16 +758,6 @@ class TrackerWindow(QMainWindow):
 
         if register_persons_dialog.current_obj_descr is None or register_persons_dialog.current_raw_bbox_name is None:
             return 1
-        """
-        print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
-        print('______DEBUG_UPDATING_DICT______')
-        print('BEFORE UPDATE')
-        print('(self.current_frame_raw_bbox_name2registered_bbox_name_mapping):')
-        print(self.current_frame_raw_bbox_name2registered_bbox_name_mapping)
-        print('(self.all_frames_raw_bbox_name2registered_bbox_name_dict)')
-        print(self.all_frames_raw_bbox_name2registered_bbox_name_dict)
-        print()
-        """
         
         self.current_frame_raw_bbox_name2registered_bbox_name_mapping = register_persons_dialog.raw_bbox2registered_bbox_mapping
         
@@ -779,14 +769,7 @@ class TrackerWindow(QMainWindow):
 
         # обновляем словарь возможных отображений {имя сгенерированной рамки: имя зарегистрированной рамки}
         self.all_frames_raw_bbox_name2registered_bbox_name_dict.update(self.current_frame_raw_bbox_name2registered_bbox_name_mapping.forward_mapping_dict)
-        """
-        print('AFTER UPDATE')
-        print('(self.current_frame_raw_bbox_name2registered_bbox_name_mapping):')
-        print(self.current_frame_raw_bbox_name2registered_bbox_name_mapping)
-        print('(self.all_frames_raw_bbox_name2registered_bbox_name_dict)')
-        print(self.all_frames_raw_bbox_name2registered_bbox_name_dict)
-        print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
-        """
+
 
         self.register_new_bbox()
         self.registered_bboxes_dict, self.tracking_bboxes_dict, self.tracked_and_raw_bboxes_dict \
@@ -886,7 +869,7 @@ class TrackerWindow(QMainWindow):
             # обновляем словари с зарегистрированными рамками и отслеживаемыми рамками
             for raw_bbox_name, raw_bbox in self.raw_bboxes_dict.items():
                 try:
-                    # если в словаре self.all_frames_raw_bbox_name2registered_bbox_name_dict отсутствует
+                    # если в словаре all_frames_raw_bbox_name2registered_bbox_name_dict отсутствует
                     # имя автоматически сгенерированной рамки, то идем дальше
                     corresponding_registered_name = self.all_frames_raw_bbox_name2registered_bbox_name_dict[raw_bbox_name]
                 except KeyError:
@@ -1701,9 +1684,7 @@ class Yolov8Tracker:
         print(bboxes_dict)
 
         for bbox, id, class_name in zip(bboxes, ids, detected_classes):
-            print(bbox)
-            print(id)
-            print(class_name)
+            
 
             #class_name = f'{target_class_name}{id:03d}'
             displaying_class_name = f'{class_name}(AG)'
@@ -1714,6 +1695,11 @@ class Yolov8Tracker:
             x0,y0,x1,y1 = process_box_coords(x0,y0,x1,y1, img_rows, img_cols)
             # пока что оставляем всего лишь один цвет - черный
             color = (0,0,0)
+
+            #print(id)
+            #print(x0,y0,x1,y1)
+            #print(class_name)
+            print('-------------')
             
             bbox = Bbox(
                 x0, y0, x1, y1,
@@ -1722,13 +1708,14 @@ class Yolov8Tracker:
                 autogen_idx=id,
                 manual_idx=None,
                 color=color,
-                tracking_type='auto'
+                tracking_type='yolo'
                 )
+            print(bbox)
             
             bboxes_dict[f'{displaying_class_name},{id}'] = bbox
             # debug
 
-        print('ПИДОРАС! ПИДОРАСИНА!', [(k, v) for k, v in bboxes_dict.items()])
+        #print('ПИДОРАС! ПИДОРАСИНА!', [(k, v) for k, v in bboxes_dict.items()])
         #print(bboxes_dict)
         return bboxes_dict
     

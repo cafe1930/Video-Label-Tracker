@@ -177,15 +177,15 @@ class Bbox:
         color - цвет рамки
         sample_idx - индекс или номер рамки одного и того же класса для отслеживания ситуаций, когда на изображении много объектов одного и того же класса 
         tracking_type:str - тип трэкинга. Возможные варианты ['yolo', 'opencv', 'no']
-        tracking_status:str - тип трэкинга. Возможные варианты ['yolo', 'opencv', 'no']
         '''
 
         # координаты левого верхнего и правого нижнего углов рамки
         self.coords = (x0, y0, x1, y1)
         # имя класса
         self.class_name = class_name
-        # индекс объекта какого-то определенного класса
+        # индекс объекта какого-то определенного класса, полученный из автоматического трекера
         self.autogen_idx = autogen_idx
+        # индекс отслеживаемого объекта
         self.manual_idx = manual_idx
         # цвет рамки
         self.color = color
@@ -215,6 +215,9 @@ class Bbox:
         self.is_visible = is_visible
 
         self.tracking_type = tracking_type
+
+        #print('In bbox constructor')
+        #print(self.coords, self.color, self.class_name, self.id, self.tracking_type)
         
 
     def __hash__(self):
@@ -225,9 +228,6 @@ class Bbox:
     
     def update_color(self, color):
         self.color = color
-
-    def get_id(self):
-        return self.id
     
     def get_class_name(self):
         return self.class_name
@@ -336,7 +336,6 @@ class Bbox:
         self.dy0 = None
         self.dx1 = None
         self.dy1 = None
-
         
     def update_coords(self, x0, y0, x1, y1):
         self.coords = (x0, y0, x1, y1)
@@ -372,11 +371,13 @@ class Bbox:
     
     def compute_bbox_area(self):
         return compute_bbox_area(*self.coords)
-        
-
+    
     def __repr__(self) -> str:
+        #print('In __repr__')
         class_name = self.class_name
         id = self.id
+        repr_str = f'{class_name},{id}: {self.coords}, visible={self.is_visible}, tracking_type={self.tracking_type}'
+        #print(f'repr_str', repr_str)
         return f'{class_name},{id}: {self.coords}, visible={self.is_visible}, tracking_type={self.tracking_type}'
 
 
@@ -681,7 +682,13 @@ class BboxFrameTracker:
             if bbox.is_visible:
                 x0, y0, x1, y1 = bbox.coords
                 class_name = bbox.class_name
-                sample_idx = bbox.id
+
+                # потом надо переработать логику
+                if bbox.manual_idx is not None:
+                    sample_idx = bbox.manual_idx
+                if bbox.manual_idx is None and bbox.autogenl_idx is not None:
+                    sample_idx = bbox.autogen_idx
+                
                 if self.is_bbox_idx_displayed:
                     displaying_name = f'{class_name},{sample_idx}'
                 else:
