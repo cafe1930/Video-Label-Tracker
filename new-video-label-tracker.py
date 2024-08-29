@@ -1698,8 +1698,13 @@ class Yolov8Tracker:
         #print(bboxes)
         #print(ids)
         #print(detected_classes)
+        print(bboxes_dict)
 
         for bbox, id, class_name in zip(bboxes, ids, detected_classes):
+            print(bbox)
+            print(id)
+            print(class_name)
+
             #class_name = f'{target_class_name}{id:03d}'
             displaying_class_name = f'{class_name}(AG)'
             x0,y0,x1,y1 = bbox
@@ -1719,10 +1724,12 @@ class Yolov8Tracker:
                 color=color,
                 tracking_type='auto'
                 )
-            print(bbox)
+            
             bboxes_dict[f'{displaying_class_name},{id}'] = bbox
             # debug
 
+        print('ПИДОРАС! ПИДОРАСИНА!', [(k, v) for k, v in bboxes_dict.items()])
+        #print(bboxes_dict)
         return bboxes_dict
     
     #def register_bboxes
