@@ -160,7 +160,7 @@ class Bbox:
             img_rows,
             img_cols,
             class_name,
-            autogen_idx,
+            auto_idx,
             manual_idx,
             color,
             is_visible=True,
@@ -181,7 +181,7 @@ class Bbox:
         # имя класса
         self.class_name = class_name
         # индекс объекта какого-то определенного класса, полученный из автоматического трекера
-        self.autogen_idx = autogen_idx
+        self.auto_idx = auto_idx
         # индекс отслеживаемого объекта
         self.manual_idx = manual_idx
         # цвет рамки
@@ -373,7 +373,7 @@ class Bbox:
         #print('In __repr__')
         class_name = self.class_name
         #id = self.id
-        repr_str = f'{class_name},auto id:{self.autogen_idx},manual_id:{self.manual_idx}: {self.coords}, visible={self.is_visible}, tracking_type={self.tracking_type}'
+        repr_str = f'{class_name},auto id:{self.auto_idx},manual_id:{self.manual_idx}: {self.coords}, visible={self.is_visible}, tracking_type={self.tracking_type}'
         #print(f'repr_str', repr_str)
         return repr_str
 
