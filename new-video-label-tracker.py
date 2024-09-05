@@ -652,22 +652,22 @@ class TrackerWindow(QMainWindow):
     def show_raw_button_handling(self):
         if self.frame_with_boxes is None:
             return
-        self.frame_with_boxes.bboxes_dict = self.raw_bboxes_dict
+        self.frame_with_boxes.bboxes_container = self.raw_bboxes_dict
 
     def show_tracked_and_raw_button_handling(self):
         if self.frame_with_boxes is None:
             return
-        self.frame_with_boxes.bboxes_dict = self.tracked_and_raw_bboxes_dict
+        self.frame_with_boxes.bboxes_container = self.tracked_and_raw_bboxes_dict
 
     def show_tracked_button_handling(self):
         if self.frame_with_boxes is None:
             return
-        self.frame_with_boxes.bboxes_dict = self.tracking_bboxes_dict
+        self.frame_with_boxes.bboxes_container = self.tracking_bboxes_dict
 
     def show_registered_button_handing(self):
         if self.frame_with_boxes is None:
             return
-        self.frame_with_boxes.bboxes_dict = self.registered_bboxes_dict
+        self.frame_with_boxes.bboxes_container = self.registered_bboxes_dict
 
     def cancell_register_objects_button_handling(self):
         if len(self.obj_descr2registered_bbox_dict) == 0:
@@ -712,7 +712,7 @@ class TrackerWindow(QMainWindow):
                 )
             return
         
-        if len(self.frame_with_boxes.bboxes_dict) == 0:
+        if len(self.frame_with_boxes.bboxes_container) == 0:
             show_info_message_box(
                 'Ошибка рамок объектов',
                 'На видео не обнаружены объекты',
@@ -721,9 +721,6 @@ class TrackerWindow(QMainWindow):
             
             return
         
-
-
-
     def register_persons_handling(self):
         self.is_autoplay = False
         if len(self.obj_descr2registered_bbox_dict) == 0:
@@ -735,7 +732,7 @@ class TrackerWindow(QMainWindow):
                 )
             return
         
-        if len(self.frame_with_boxes.bboxes_dict) == 0:
+        if len(self.frame_with_boxes.bboxes_container) == 0:
             show_info_message_box(
                 'Ошибка рамок объектов',
                 'На видео не обнаружены объекты',
@@ -744,9 +741,8 @@ class TrackerWindow(QMainWindow):
             
             return               
         
-
         # сначала показываем автоматически сгенерированные рамки
-        self.frame_with_boxes.bboxes_dict = self.raw_bboxes_dict
+        self.frame_with_boxes.bboxes_container = self.raw_bboxes_dict
 
         # вызов диалогового окна позволяет изменить имя класса всего для одной рамки
         register_persons_dialog = RegisterPersonsDialog(
@@ -1093,12 +1089,12 @@ class TrackerWindow(QMainWindow):
         '''
         self.is_autoplay = False
         label_new_bbox_dialog = LabelNewBoxDialog(
-            self.frame_with_boxes.bboxes_dict['None,None'],
+            self.frame_with_boxes.bboxes_container['None,None'],
             self.obj_descr2registered_bbox_dict,
             self.tracked_and_raw_bboxes_dict)
         label_new_bbox_dialog.exec()
 
-        self.frame_with_boxes.bboxes_dict.pop('None,None')
+        self.frame_with_boxes.bboxes_container.pop('None,None')
         if label_new_bbox_dialog.confirm_bbox_creation:
             created_bbox_name = label_new_bbox_dialog.current_bbox_name
             
@@ -1128,7 +1124,7 @@ class TrackerWindow(QMainWindow):
 
 
     def update_bboxes_on_frame(self):
-        self.tracked_and_raw_bboxes_dict = self.frame_with_boxes.bboxes_dict
+        self.tracked_and_raw_bboxes_dict = self.frame_with_boxes.bboxes_container
         
             
     def reset_display(self):
@@ -1467,15 +1463,7 @@ class TrackerWindow(QMainWindow):
         prev_bboxes_names_set = set(self.previous_tracked_and_raw_bboxes_dict.keys())
         new_bboxes_names = current_bboxes_names_set - prev_bboxes_names_set
         disappeared_bboxes_names = prev_bboxes_names_set - current_bboxes_names_set
-        '''
-        print('----COMPARE_TRACKED_AND_RAW----')
-        print(f'current_bboxes_names_set: {current_bboxes_names_set}')
-        print(f'prev_bboxes_names_set: {prev_bboxes_names_set}')
-        print()
-        print(f'new_bboxes_names: {new_bboxes_names}')
-        print(f'disappeared_bboxes_names: {disappeared_bboxes_names}')
-        print('-------------------------------')
-        '''
+        
         # смотрим, какие отслеживаемые рамки исчезли.
         # Нас не очень интересует, какие не отслеживаемые рамки исчезли
         for disappeared_bbox_name in disappeared_bboxes_names:
@@ -1613,7 +1601,7 @@ class TrackerWindow(QMainWindow):
             #    = self.update_registered_and_tracking_objects_dicts(update_source='raw')
             
             # присваиваем объекту, обрабатывающему кадр с рамками, tracked_and_raw_bboxes_dict
-            self.frame_with_boxes.bboxes_dict = self.raw_bboxes_dict
+            self.frame_with_boxes.bboxes_container = self.raw_bboxes_dict
 
 
             # сравниваем рамки текущего кадра с рамками предыдущего кадра
@@ -1621,7 +1609,7 @@ class TrackerWindow(QMainWindow):
             self.compare_prev_and_current_tracked_and_raw_bboxes_dicts()
 
             # еще раз присваиваем объекту, обрабатывающему кадр с рамками, tracked_and_raw_bboxes_dict (ЗОЧЕМ?)
-            self.frame_with_boxes.bboxes_dict = self.tracked_and_raw_bboxes_dict
+            self.frame_with_boxes.bboxes_container = self.tracked_and_raw_bboxes_dict
             
             
     def stop_showing(self):
@@ -1651,7 +1639,7 @@ class Yolov8Tracker:
         '''
         target_class_name - имя класса, который мы собираемся детектировать
         Return: 
-            bboxes_dict - словарь, который хранит 
+            bboxes_container - словарь, который хранит 
         '''
         # выполнение трекинга 
         results = self.tracker.track(*yolo_args, **yolo_kwargs)[0]
@@ -1676,12 +1664,12 @@ class Yolov8Tracker:
         # этот параметр нужен, чтобы рамка строилась не впритык объекту, а захватывала еще некоторую дополнительную область
         bbox_append_value = int(min(img_rows, img_cols)*0.025)
 
-        bboxes_dict = {}
+        bboxes_container = {}
         
         #print(bboxes)
         #print(ids)
         #print(detected_classes)
-        print(bboxes_dict)
+        print(bboxes_container)
 
         for bbox, id, class_name in zip(bboxes, ids, detected_classes):
             
@@ -1712,12 +1700,12 @@ class Yolov8Tracker:
                 )
             print(bbox)
             
-            bboxes_dict[f'{displaying_class_name},{id}'] = bbox
+            bboxes_container[f'{displaying_class_name},{id}'] = bbox
             # debug
 
-        #print('ПИДОРАС! ПИДОРАСИНА!', [(k, v) for k, v in bboxes_dict.items()])
-        #print(bboxes_dict)
-        return bboxes_dict
+        #print('ПИДОРАС! ПИДОРАСИНА!', [(k, v) for k, v in bboxes_container.items()])
+        #print(bboxes_container)
+        return bboxes_container
     
     #def register_bboxes
 

@@ -53,14 +53,12 @@ def xyxy2xywh(x0, y0, x1, y1):
     h = max(y0, y1) - min(y0, y1)
     return x0, y0, w, h
 
-
 def xywh2xyxy(x, y, w, h):
     x0 = x
     y0 = y
     x1 = x + w
     y1 = y + h
     return x0, y0, x1, y1
-
 
 def compute_iou(coords1, coords2):
     x00, y00, x01, y01 = coords1
@@ -94,7 +92,6 @@ def compute_iou(coords1, coords2):
         s_intersection = (x1-x0)*(y1-y0)
 
     return s_intersection / (s0 + s1 - s_intersection + 1e-9)
-
     
 def draw_bbox_with_text(
     image:np.array,
@@ -375,10 +372,10 @@ class Bbox:
     def __repr__(self) -> str:
         #print('In __repr__')
         class_name = self.class_name
-        id = self.id
-        repr_str = f'{class_name},{id}: {self.coords}, visible={self.is_visible}, tracking_type={self.tracking_type}'
+        #id = self.id
+        repr_str = f'{class_name},auto id:{self.autogen_idx},manual_id:{self.manual_idx}: {self.coords}, visible={self.is_visible}, tracking_type={self.tracking_type}'
         #print(f'repr_str', repr_str)
-        return f'{class_name},{id}: {self.coords}, visible={self.is_visible}, tracking_type={self.tracking_type}'
+        return repr_str
 
 
 class BboxFrameTracker:
@@ -393,7 +390,7 @@ class BboxFrameTracker:
         self.img = img.copy()
 
         # словарь, где мы храним все рамки
-        self.bboxes_dict = {}
+        self.bboxes_container = {}
 
         # координаты изменяемого угла
         self.displayed_corner = None
@@ -428,13 +425,15 @@ class BboxFrameTracker:
         
         if event == cv2.EVENT_LBUTTONDOWN and not flags & cv2.EVENT_FLAG_CTRLKEY:
             if self.processing_box is None:
-                class_idx = None
+                
                 color = (0, 0, 0)
+                # !!!!!!!
+                class_idx = None
                 current_class_name = None
                 self.processing_box = Bbox(x, y, x, y, rows, cols, current_class_name, color, class_idx)
                 self.processing_box.create_bbox(x, y)
-                self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
-
+                # изменение по корректируемой рамке
+                self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
 
         # mouse is being moved, draw rectangle
         elif event == cv2.EVENT_MOUSEMOVE and not flags & cv2.EVENT_FLAG_CTRLKEY:
@@ -442,7 +441,8 @@ class BboxFrameTracker:
                 if self.processing_box.is_bbox_creation:
                     # для обеспечения "передвижения" угла рамки, мы постоянно извлекаем станые координаты рамки и добавляем новые
                     self.processing_box.create_bbox(x, y)
-                    self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
+                    # изменение по корректируемой рамке
+                    self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
                     
         # if the left mouse button was released, set the drawing flag to False
         elif event == cv2.EVENT_LBUTTONUP and not flags & cv2.EVENT_FLAG_CTRLKEY:
@@ -453,14 +453,13 @@ class BboxFrameTracker:
                 self.processing_box.make_x0y0_lesser_x1y1()
                 self.processing_box.stop_bbox_creation()
 
-                self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
+                # изменение по корректируемой рамке
+                self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
 
                 self.processing_box = None
                 
                 # флаг, сигнализирующий о создании новой рамки
                 self.is_bbox_created = True
-                
-                #self.is_bboxes_changed = True               
         else:
             #self.is_bboxes_changed = False
             self.is_bbox_created = False
@@ -472,9 +471,11 @@ class BboxFrameTracker:
             
                 if self.processing_box is None:
                     # здесь self.processing_box должен быть проинициализирован, иначе возвращаемся из функции
-                    self.processing_box = self.bboxes_dict[bbox_name]
+                    # извлечение из словаря по заданному имени
+                    self.processing_box = self.bboxes_container[bbox_name]
                     self.processing_box.corner_drag(x, y)
-                    self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
+                    # изменение по корректируемой рамке
+                    self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
         
             # mouse is being moved, draw rectangle
             elif event == cv2.EVENT_MOUSEMOVE:
@@ -482,7 +483,8 @@ class BboxFrameTracker:
                     if self.processing_box.is_corner_dragging:
                         # для обеспечения "передвижения" угла рамки, мы постоянно извлекаем станые координаты рамки и добавляем новые
                         self.processing_box.corner_drag(x, y)
-                        self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
+                        # изменение по корректируемой рамке
+                        self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
                 
             # if the left mouse button was released, set the drawing flag to False
             elif event == cv2.EVENT_LBUTTONUP:
@@ -492,7 +494,8 @@ class BboxFrameTracker:
                     self.processing_box.corner_drag(x, y)
                     self.processing_box.make_x0y0_lesser_x1y1()
                     self.processing_box.stop_corner_drag()
-                    self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
+                    # изменение по корректируемой рамке
+                    self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
                     self.processing_box = None
                     self.is_bboxes_changed = True
         else:
@@ -506,10 +509,11 @@ class BboxFrameTracker:
         if event == cv2.EVENT_LBUTTONDOWN:
             if flags & cv2.EVENT_FLAG_CTRLKEY:
                 if self.processing_box is None:
-                    # извлекаем корректируемую рамку из списка
-                    self.processing_box = self.bboxes_dict[bbox_name]
+                    # извлекаем корректируемую рамку из списка по заданному имени
+                    self.processing_box = self.bboxes_container[bbox_name]
                     self.processing_box.box_drag(x, y)
-                    self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
+                    # изменение по корректируемой рамке
+                    self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
         # mouse is being moved, draw rectangle
         elif event == cv2.EVENT_MOUSEMOVE:
             if flags & cv2.EVENT_FLAG_CTRLKEY:
@@ -517,7 +521,8 @@ class BboxFrameTracker:
                     if self.processing_box.is_bbox_dragging:
                         # для обеспечения "передвижения" угла рамки, мы постоянно извлекаем станые координаты рамки и добавляем новые
                         self.processing_box.box_drag(x, y)
-                        self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
+                        # изменение по корректируемой рамке
+                        self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
             else:
                 self.processing_box.make_x0y0_lesser_x1y1()
                 self.processing_box.stop_box_drag()
@@ -536,7 +541,8 @@ class BboxFrameTracker:
                         #print(f'Bbox size adjusting: {self.processing_box}')
                         self.processing_box.stop_box_drag()
 
-                        self.bboxes_dict[self.processing_box.get_class_id_str()] = self.processing_box
+                        # изменение по корректируемой рамке
+                        self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
                         
                         self.processing_box = None
                         #self.is_bboxes_changed = True
@@ -557,15 +563,18 @@ class BboxFrameTracker:
                 #print(drawing_bbox_name, self.current_class_name)
                 if self.processing_box is None:
                     if self.current_class_name is not None:
-                        self.processing_box = self.bboxes_dict[drawing_bbox_name]
+                        # извлечение из словаря по заданному имени!
+                        self.processing_box = self.bboxes_container[drawing_bbox_name]
                         current_color = (0,255,0)
                         class_name, id = self.current_class_name.split(',')
 
                         self.processing_box.class_name = class_name
                         self.processing_box.id = int(id)
                         self.processing_box.color = current_color
-                        self.bboxes_dict[self.current_class_name] = self.processing_box
-                        self.bboxes_dict.pop(drawing_bbox_name)
+                        # изменение по информации извне - по заданному имени класса
+                        self.bboxes_container[self.current_class_name] = self.processing_box
+                        # удаление рамки по заданному имени
+                        self.bboxes_container.pop(drawing_bbox_name)
                         self.processing_box = None
                         self.is_bboxes_changed = True
         else:
@@ -575,7 +584,8 @@ class BboxFrameTracker:
         if event == cv2.EVENT_LBUTTONDOWN:
             if flags & cv2.EVENT_FLAG_ALTKEY and not flags & cv2.EVENT_FLAG_CTRLKEY:
                 if self.processing_box is None:
-                    self.processing_box = self.bboxes_dict.pop(bbox_name)
+                    # удаление по заданному имени
+                    self.processing_box = self.bboxes_container.pop(bbox_name)
                     
                     self.processing_box = None
                     self.is_bboxes_changed = True
@@ -608,7 +618,8 @@ class BboxFrameTracker:
                 elif self.processing_box.is_bbox_dragging:
                     self.drag_box(event, flags, bbox_name, x, y)  
             else:
-                for bbox_name, bbox in self.bboxes_dict.items():
+                # итерирование с извлечением имени и рамки
+                for bbox_name, bbox in self.bboxes_container.items():
                     x0, y0, x1, y1 = bbox.coords
                     
                     if check_cursor_in_corner(x0,y0,x,y,6):
@@ -645,7 +656,8 @@ class BboxFrameTracker:
                         #self.is_bboxes_changed = False
         # При зажатом Alt мы удаляем рамку
         elif (flags & cv2.EVENT_FLAG_ALTKEY)==cv2.EVENT_FLAG_ALTKEY and not (flags & cv2.EVENT_FLAG_CTRLKEY)==cv2.EVENT_FLAG_CTRLKEY:
-            for bbox_name, bbox in list(self.bboxes_dict.items()):
+            # итерирование с извлечением имени и рамки
+            for bbox_name, bbox in list(self.bboxes_container.items()):
                 x0, y0, x1, y1 = bbox.coords
                 if check_cursor_in_bbox(x0, y0, x1, y1, x, y):
                     self.displayed_box = (x0, y0, x1, y1)
@@ -661,8 +673,9 @@ class BboxFrameTracker:
             # фактически, мы вызываем всегда функцию draw_one_box, а уже внутри нее обрабатываем нажатия кнопок
             self.draw_one_box(event, flags, x, y)
 
-    def update_bboxes_dict(self, new_bboxes_dict):
-        self.bboxes_dict = new_bboxes_dict
+    def update_bboxes_dict(self, new_bboxes_container):
+        # обновление контейнера
+        self.bboxes_container = new_bboxes_container
 
     def render_boxes(self):
         '''
@@ -678,7 +691,8 @@ class BboxFrameTracker:
         # вычисляем ширину рамки. Квадратный корень почему-то работает хорошо...
         line_width = np.round(np.sqrt(font_size).astype(int))
         #print('--------------------DEBUG--------------------')
-        for bbox_name, bbox in list(self.bboxes_dict.items())[::-1]:
+        # итерирование по рамкам в обратном порядке (чтобы те рамки, которые были добавлены последними, рендерились поверх остальных)
+        for bbox_name, bbox in list(self.bboxes_container.items())[::-1]:
             if bbox.is_visible:
                 x0, y0, x1, y1 = bbox.coords
                 class_name = bbox.class_name
