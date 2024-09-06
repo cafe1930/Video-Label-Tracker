@@ -143,40 +143,32 @@ class LabelNewBoxDialog(QDialog):
         self.current_bbox_name = self.obj_descr2registered_bbox_dict[value]
 
 class RegisterPersonsDialog(QDialog):
-    def __init__(self, raw_bbox2registered_bbox_mapping,  obj_descr2registered_bbox_dict, raw_bboxes_dict):
+    def __init__(self, registered_objects_container, available_clsses_list):
         '''
         Данное диалоговое окно служит для выбора человека, движение которого мы отслеживаем
         Диалоговое окно должно выскакивать после первого кадра.
+        registered_objects_container - контейнер (), где хранятся все классы отслеживаемых объектов с индексами
+        available_clsses_list - список доступных классов 
         '''
         super().__init__()
         
         self.setMinimumWidth(250)
 
-        # словарь для отображения имени отслеживаемого объекта на имя "черной" (не обработанной) рамки
-        # {имя автоматически сгенерированной рамки: описание объекта}
-        #self.obj_descr2raw_bbox_dict = {}
-        self.raw_bbox2registered_bbox_mapping = raw_bbox2registered_bbox_mapping
-
-        # показвтели, которые мы меняем
-        self.current_raw_bbox_name = None
-        self.current_obj_descr = None
-        
-        # {описание отслеживаемого объекта: имя зарегистрированной рамки}
-        self.obj_descr2registered_bbox_dict = obj_descr2registered_bbox_dict
+        # контейнер, хранящий имена зарегистрированных объектов и их индексы
+        self.registered_objects_container = registered_objects_container
 
         # этот словарь нужен для индексации экземпляров отдельных классов
         #self.classes_ids_dict = self.get_all_classes_ids_dict()
 
-        self.setWindowTitle('Ассоциация имен классов с рамками')
+        self.setWindowTitle('Регистрация отслежиываемых объектов')
         
         self.save_and_exit_button = QPushButton('Сохранить и выйти')
         self.exit_without_save_button = QPushButton('Выйти без сохранения')
         self.class_names_combobox = QComboBox()
         self.bboxes_combobox = QComboBox()
         
-        
         # заполнение выпадающих списков значениями
-        self.class_names_combobox.addItems(list(self.obj_descr2registered_bbox_dict.keys()))
+        self.class_names_combobox.addItems(available_clsses_list)
         self.bboxes_combobox.addItems(list(raw_bboxes_dict.keys()))
         
         self.class_names_combobox.activated[str].connect(self.class_names_combobox_value_changed)
@@ -393,7 +385,7 @@ class TrackerWindow(QMainWindow):
         #self.disable_add_tracking = QCheckBox('Откл. доп трекинг')
         self.show_tracked_checkbox = QCheckBox('Показать отслеживаемые объекты')
 
-        #register_objects_button = QPushButton('Регистрация нового объекта')
+        register_objects_button = QPushButton('Регистрация нового объекта')
         #cancell_register_objects_button = QPushButton('Отмена регистрации всех объектов')
         #add_new_object_button = QPushButton('Добавить новый объект')
         
@@ -432,7 +424,7 @@ class TrackerWindow(QMainWindow):
         next_frame_button.clicked.connect(self.next_frame_button_handling)
         previous_frame_button.clicked.connect(self.previous_frame_button_handling)
         #autoplay_button.clicked.connect(self.autoplay)
-        #register_objects_button.clicked.connect(self.register_persons_handling)
+        register_objects_button.clicked.connect(self.register_persons_handling)
         #add_new_object_button.clicked.connect(self.add_new_person_handling)
         #cancell_register_objects_button.clicked.connect(self.cancell_register_objects_button_handling)
         #reset_tracker_and_set_frame_button.clicked.connect(self.reset_tracker_and_set_frame_button_handling)
@@ -497,7 +489,7 @@ class TrackerWindow(QMainWindow):
         # пока что спрячем разворачивающийся список классов...
         #self.displaying_classes_layout.addWidget(self.classes_with_description_table)
 
-        #self.displaying_classes_layout.addWidget(register_objects_button)
+        self.displaying_classes_layout.addWidget(register_objects_button)
         #self.displaying_classes_layout.addWidget(cancell_register_objects_button)
         #self.displaying_classes_layout.addWidget(add_new_object_button)
         
@@ -723,26 +715,6 @@ class TrackerWindow(QMainWindow):
         
     def register_persons_handling(self):
         self.is_autoplay = False
-        if len(self.obj_descr2registered_bbox_dict) == 0:
-            show_info_message_box(
-                'Ошибка загрузки описаний объектов',
-                'Сначала загрузите видео с описением классов',
-                QMessageBox.Ok,
-                QMessageBox.Critical
-                )
-            return
-        
-        if len(self.frame_with_boxes.bboxes_container) == 0:
-            show_info_message_box(
-                'Ошибка рамок объектов',
-                'На видео не обнаружены объекты',
-                QMessageBox.Ok,
-                QMessageBox.Critical)
-            
-            return               
-        
-        # сначала показываем автоматически сгенерированные рамки
-        self.frame_with_boxes.bboxes_container = self.raw_bboxes_dict
 
         # вызов диалогового окна позволяет изменить имя класса всего для одной рамки
         register_persons_dialog = RegisterPersonsDialog(
@@ -939,7 +911,6 @@ class TrackerWindow(QMainWindow):
                     #registered_bbox_name_item.setSelected(True)
                     self.classes_with_description_table.item(row_idx, 0).setSelected(True)
 
-                
     def update_tracking_objects_set_from_table(self):
         rows_num = self.classes_with_description_table.rowCount()
         for row_idx in range(rows_num):
