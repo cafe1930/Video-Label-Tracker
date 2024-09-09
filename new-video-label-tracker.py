@@ -143,12 +143,12 @@ class LabelNewBoxDialog(QDialog):
         self.current_bbox_name = self.obj_descr2registered_bbox_dict[value]
 
 class RegisterPersonsDialog(QDialog):
-    def __init__(self, registered_objects_container, available_clsses_list):
+    def __init__(self, registered_objects_container, available_classes_list):
         '''
         Данное диалоговое окно служит для выбора человека, движение которого мы отслеживаем
         Диалоговое окно должно выскакивать после первого кадра.
         registered_objects_container - контейнер (), где хранятся все классы отслеживаемых объектов с индексами
-        available_clsses_list - список доступных классов 
+        available_classes_list - список доступных классов 
         '''
         super().__init__()
         
@@ -168,7 +168,7 @@ class RegisterPersonsDialog(QDialog):
         self.bboxes_combobox = QComboBox()
         
         # заполнение выпадающих списков значениями
-        self.class_names_combobox.addItems(available_clsses_list)
+        self.class_names_combobox.addItems(available_classes_list)
         self.bboxes_combobox.addItems(list(raw_bboxes_dict.keys()))
         
         self.class_names_combobox.activated[str].connect(self.class_names_combobox_value_changed)

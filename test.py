@@ -11,20 +11,28 @@ class bboxes_container:
 
         # основная таблица с рамками
         # !!!!! не вполне понятно,зачем теперь нужно поле id, раз я решил осуществлять поиск посредством фильтрации значений полей
-        self.bboxes_df = pd.DataFrame(columns=['class_name', 'auto_idx', 'manual_idx', 'bbox', 'is_updated'])
+        # Колонки у таблицы:
+        #   class_name - имя класса
+        #   object_description - описание объекта
+        #   auto_idx - индекс, присвоенный автоматическим трекером
+        #   manual_idx - индекс отслеживаемого объекта
+        #   bbox - сам объект рамки
+        #   is_updated - флаг, сигнализирующий о том, что рамка обновилась на очередном кадре
+        self.bboxes_df = pd.DataFrame(columns=['class_name', 'object_description', 'auto_idx', 'manual_idx', 'bbox', 'is_updated'])
         # вспомогательное множество с теми рамками, которые мы отслеживаем.
         # нужно для обновления совокупности рамок при переходе между кадрами
         self.updated_bboxes_set = set()
 
         # Какова его структура?
-        self.classes_counter = {}
         self.auto_bboxes_indices = {}
-        self.tracking_bboxes_indices = {}
+        # {имя класса: индекс последнего}
+        self.tracking_classes_counter = {}
 
     def show_bbox_certain_type(self, showing_type):
         '''
         Показывает рамки определенного типа (автоматические или отслеживаемые вручную)
         showing_type = ['auto', 'manual', 'both']
+        НЕ ДОПИСАНО!!!!111
         '''
         if showing_type == 'auto':
             # как делать inplace операции с объектами, хранящимися в ячейках?
@@ -37,23 +45,26 @@ class bboxes_container:
         updting_source - источник обновления из множества ['auto', 'manual']
         '''
         updating_class_name = updating_bbox.class_name
-        updating_idx = updating_bbox.auto_idx
+        updating_auto_idx = updating_bbox.auto_idx
         
         # обработка различных источников обновления 
         if updating_source == 'auto':
             filter_condition = (self.bboxes_df['class_name']==updating_class_name)\
-                & (self.bboxes_df['auto_idx']==updating_idx)
+                & (self.bboxes_df['auto_idx']==updating_auto_idx)
+            manual_idx = -1
         elif updating_source == 'manual':
             filter_condition = (self.bboxes_df['class_name']==updating_class_name)\
-                & (self.bboxes_df['manual_idx']==updating_idx)
+                & (self.bboxes_df['manual_idx']==updating_auto_idx)
+            manual_idx = updating_bbox.manual_idx
         
         filtered_bboxes_df = self.bboxes_df[filter_condition]
         # если рамки нет БД, ее надо добавить
         if len(filtered_bboxes_df) < 1:
             self.bboxes_df.loc[len(self.bboxes_df)] = {
                 'class_name': updating_class_name,
-                'auto_idx': updating_idx,
-                'manual_idx': updating_bbox.manual_idx,
+                'object_description': '',
+                'auto_idx': updating_auto_idx,
+                'manual_idx': manual_idx,
                 'bbox': updating_bbox,
                 'is_updated':True
                 }
