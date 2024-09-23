@@ -373,7 +373,7 @@ class Bbox:
         #print('In __repr__')
         class_name = self.class_name
         #id = self.id
-        repr_str = f'{class_name},auto id:{self.auto_idx},manual_id:{self.manual_idx}: {self.coords}, visible={self.is_visible}, tracking_type={self.tracking_type}'
+        repr_str = f'{class_name},auto_idx:{self.auto_idx},manual_idx:{self.manual_idx}: {self.coords}, visible={self.is_visible}, tracking_type={self.tracking_type}'
         #print(f'repr_str', repr_str)
         return repr_str
 
