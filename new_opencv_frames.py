@@ -428,9 +428,11 @@ class BboxFrameTracker:
                 
                 color = (0, 0, 0)
                 # !!!!!!!
-                class_idx = None
-                current_class_name = None
-                self.processing_box = Bbox(x, y, x, y, rows, cols, current_class_name, color, class_idx)
+                auto_idx = -1
+                manual_idx = -1
+                current_class_name = '?'
+                self.processing_box = Bbox(
+                    x, y, x, y, rows, cols, current_class_name, auto_idx, manual_idx, color)
                 self.processing_box.create_bbox(x, y)
                 # изменение по корректируемой рамке
                 self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box

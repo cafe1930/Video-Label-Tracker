@@ -199,6 +199,9 @@ class BboxFrame:
         self.palette_dict = create_palette(new_classes_list)
 
     def draw_one_box(self, event, flags, x, y):
+        '''
+        Рисование рамки вручную
+        '''
         rows, cols, channels = self.img.shape
 
         if event == cv2.EVENT_LBUTTONDOWN and not flags & cv2.EVENT_FLAG_CTRLKEY:
@@ -938,6 +941,9 @@ class Bbox:
         self.update_coords(self.ix, self.iy, corner_x, corner_y)
 
     def create_bbox(self, corner_x, corner_y):
+        '''
+        Рисование рамки
+        '''
         x0, y0, x1, y1 = self.coords
         self.is_bbox_dragging = False
         self.is_corner_dragging = False
