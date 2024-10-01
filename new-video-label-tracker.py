@@ -11,6 +11,8 @@ import os
 import glob
 import json
 
+import pandas as pd
+
 from copy import deepcopy
 
 import numpy as np
@@ -18,7 +20,7 @@ import numpy as np
 import time
 import torch
 
-from new_opencv_frames import BboxFrameTracker, Bbox, process_box_coords, xywh2xyxy, compute_bbox_area
+from new_opencv_frames import BboxFrameTracker, Bbox, BboxesContainer, process_box_coords, xywh2xyxy, compute_bbox_area
 
 from ultralytics import YOLO
 
@@ -58,48 +60,40 @@ class One2OneMapping:
         return f'forward map: {self.forward_mapping_dict}, inverse map: {self.inverse_mapping_dict}'
 
 class LabelNewBoxDialog(QDialog):
-    def __init__(self, current_bbox, obj_descr2registered_bbox_dict, tracked_and_raw_bboxes_dict):
+    def __init__(self, registered_objects_container):
         '''
         Данное диалоговое окно служит для выбора человека, движение которого мы отслеживаем
         Диалоговое окно должно выскакивать после первого кадра.
         '''
         super().__init__()
+
+        self.registered_objects_container = registered_objects_container
         
         self.setMinimumWidth(250)
 
-        # мы изменяем рамку, которая была добавлена последней
-        self.current_bbox = deepcopy(current_bbox)
-        
-        # словарь, выполняющий отображение описание людей на "синие" (зарегистрированные) рамки
-        # ключ - словесное описание объекта, значение - имя отображаемой камки
-        self.obj_descr2registered_bbox_dict = obj_descr2registered_bbox_dict
-
-        self.tracked_and_raw_bboxes_dict = tracked_and_raw_bboxes_dict
-
         # показатели, которые мы меняем
-        self.current_obj_descr = None
-
-        self.confirm_bbox_creation = False
-
+        self.current_class_name = '---'
+        self.current_object_descr = ''
+        self.current_registered_idx = -1
 
         self.setWindowTitle('Присваивание имени новой рамке')
+
         self.confirm_button = QPushButton('Сохранить')
         self.cancell_button = QPushButton('Отменить')
-        self.existent_classes_combobox = QComboBox()
-        self.class_idx_text_label = QLabel()
+        self.registered_bboxes_combobox = QComboBox()
         
         # заполнение выпадающих списков значениями
-        self.existent_classes_combobox.addItems(list(self.obj_descr2registered_bbox_dict.keys()))
-        self.existent_classes_combobox.activated[str].connect(self.combobox_value_changed)
+        registered_bboxes = registered_objects_container.get_registered_bboxes()
+        registered_bboxes_list = [
+            f"{row['object_description']},{row['class_name']},{row['object_idx']}" for idx, row in registered_bboxes.iterrows()]
+        self.registered_bboxes_combobox.addItems(['---']+registered_bboxes_list)
+
+        self.registered_bboxes_combobox.activated[str].connect(self.combobox_value_changed)
         self.confirm_button.clicked.connect(self.confirm_and_exit)
         self.cancell_button.clicked.connect(self.cancell_and_exit)
 
-        self.current_obj_descr = self.existent_classes_combobox.currentText()
-        self.current_bbox_name = self.obj_descr2registered_bbox_dict[self.current_obj_descr]
-
         functional_layout = QHBoxLayout()
-        functional_layout.addWidget(self.existent_classes_combobox)
-        functional_layout.addWidget(self.class_idx_text_label)
+        functional_layout.addWidget(self.registered_bboxes_combobox)
 
         buttons_layout = QHBoxLayout()
         buttons_layout.addWidget(self.confirm_button)
@@ -113,8 +107,8 @@ class LabelNewBoxDialog(QDialog):
     def confirm_and_exit(self):
         '''
         Меняем имя класса и номер у рамки
-        '''
-        if self.current_bbox_name in self.tracked_and_raw_bboxes_dict:
+        
+        
             result = show_info_message_box(
                 window_title='Коллизия имен рамок',
                 info_text=f'Рамка {self.current_bbox_name} для объекта {self.current_obj_descr} уже есть на кадре. Перезаписать ее?',
@@ -123,27 +117,30 @@ class LabelNewBoxDialog(QDialog):
             )
             if result == QMessageBox.No:
                 return
-        self.confirm_bbox_creation = True
-        class_name, id = self.current_bbox_name.split(',')
-        
-        self.current_bbox.class_name = class_name
-        self.current_bbox.id = id
-        self.current_bbox.color = (0, 255, 0)
-        self.current_bbox.is_additionaly_tracked = True
+        '''
+        if self.current_class_name == '---':
+            self.cancell_and_exit()
         
         self.close()
 
     def cancell_and_exit(self):
-        self.confirm_bbox_creation = False
+        self.current_class_name == '---'
+        self.current_object_descr = ''
+        self.current_registered_idx = -1
         self.close()
 
     def combobox_value_changed(self, value):
-        # ищем рамку с теми же самыми именем класса и индексом
-        self.current_obj_descr = value
-        self.current_bbox_name = self.obj_descr2registered_bbox_dict[value]
+        if value == '---':
+            self.current_class_name == '---'
+            self.current_object_descr = ''
+            self.current_registered_idx = -1
+            return
+        
+        self.current_obj_descr, self.current_class_name, self.current_registered_idx = value.split(',')
+        self.current_registered_idx = int(self.current_registered_idx)
 
-class RegisterObjectsDialog(QDialog):
-    def __init__(self, registered_objects_container, available_classes_list, registration_type='full'):
+class RegisterTrackingObjectsDialog(QDialog):
+    def __init__(self, registered_objects_container, available_classes_list):
         '''
         Данное диалоговое окно служит для выбора человека, движение которого мы отслеживаем
         Диалоговое окно должно выскакивать после первого кадра.
@@ -153,7 +150,7 @@ class RegisterObjectsDialog(QDialog):
         '''
         super().__init__()
         
-        self.setMinimumWidth(250)
+        self.setMinimumWidth(300)
 
         # контейнер, хранящий имена зарегистрированных объектов и их индексы
         self.registered_objects_container = registered_objects_container
@@ -167,6 +164,10 @@ class RegisterObjectsDialog(QDialog):
         registered_bboxes_label = QLabel(text='Выбор из\nзарегистрированных\nрамок')
         register_new_object_label = QLabel(text='Регистрация нового объекта')
         assign_auto_bbox_label = QLabel(text='Присвоение автоматически\nсгенерированной рамки')
+
+        # коклонка регистрации
+        print_obj_descr_label = QLabel(text='Введите описание:')
+        choose_obj_class = QLabel(text='Выберите класс:')
 
         # поле для ввода описания класса
         self.object_descr_textline = QLineEdit()
@@ -184,11 +185,12 @@ class RegisterObjectsDialog(QDialog):
         # заполнение выпадающих списков значениями
         #
         # доступные имена классов
+        available_classes_list = sorted(available_classes_list)
         self.available_class_names_combobox.addItems(['---']+available_classes_list)
         # зарегистрированные рамки
         registered_bboxes = registered_objects_container.get_registered_bboxes()
         registered_bboxes_list = [
-            f"{row['object_description']} {row['bbox'].class_name},{row['bbox'].manual_idx}" for idx, row in registered_bboxes.iterrows()]
+            f"{row['object_description']} {row['class_name']},{row['object_idx']}" for idx, row in registered_bboxes.iterrows()]
         self.registered_bboxes_combobox.addItems(['---']+registered_bboxes_list)
         # автоматически сгенерированные рамки
         autogenerated_bboxes = registered_objects_container.get_autogenerated_bboxes()
@@ -206,7 +208,7 @@ class RegisterObjectsDialog(QDialog):
         # Присвоение значений списков по умолчанию
         self.current_class_name = '---'
         self.current_object_descr = ''
-        self.current_auto_bbox = None
+        #self.current_auto_bbox = None
 
         # левая колонка
         registered_layout = QVBoxLayout()
@@ -214,33 +216,36 @@ class RegisterObjectsDialog(QDialog):
         registered_layout.addWidget(self.registered_bboxes_combobox)
 
         # средняя колонка
-        register_new_layout = QVBoxLayout()
-        register_new_layout.addWidget(register_new_object_label)
-        register_new_layout.addWidget(self.object_descr_textline)
-        register_new_layout.addWidget(self.available_class_names_combobox)
+        register_new_labels_layout = QVBoxLayout()
+        register_new_labels_layout.addWidget(print_obj_descr_label)
+        register_new_labels_layout.addWidget(choose_obj_class)
+
+        register_new_funct_layout = QVBoxLayout()
+        register_new_funct_layout.addWidget(self.object_descr_textline)
+        register_new_funct_layout.addWidget(self.available_class_names_combobox)
+
+        register_new_layout = QHBoxLayout()
+        register_new_layout.addLayout(register_new_labels_layout)        
+        register_new_layout.addLayout(register_new_funct_layout)
+        #register_new_layout.addWidget(register_new_object_label)
+        #register_new_layout.addWidget(self.object_descr_textline)
+        #register_new_layout.addWidget(self.available_class_names_combobox)
 
         # Правая колонка
         assign_existent_layout = QVBoxLayout()
         assign_existent_layout.addWidget(assign_auto_bbox_label)
         assign_existent_layout.addWidget(self.autogenerated_bboxes_combobox)
 
-
         functional_layout = QHBoxLayout()
-        if registration_type == 'full':
-            functional_layout.addLayout(registered_layout)
-            functional_layout.addLayout(register_new_layout)
-            functional_layout.addLayout(assign_existent_layout)
-        elif registration_type == 'register_new':
-            functional_layout.addLayout(register_new_layout)
-        elif registration_type == 'assign':
-            functional_layout.addLayout(assign_existent_layout)
-        #functional_layout.addWidget(self.registered_bboxes_combobox)
-
+        
+        #functional_layout.addLayout(registered_layout)
+        functional_layout.addLayout(register_new_layout)
+        #functional_layout.addLayout(assign_existent_layout)
+        
         buttons_layout = QHBoxLayout()
         buttons_layout.addWidget(self.save_and_exit_button)
         buttons_layout.addWidget(self.exit_without_save_button)
                 
-
         main_layout = QVBoxLayout()
         main_layout.addLayout(functional_layout)
         main_layout.addLayout(buttons_layout)
@@ -250,6 +255,8 @@ class RegisterObjectsDialog(QDialog):
         self.current_object_descr = text
 
     def exit_without_save(self):
+        self.current_class_name == '---'
+        self.current_object_descr = ''
         self.close()
 
     def save_and_exit(self):
@@ -259,12 +266,11 @@ class RegisterObjectsDialog(QDialog):
         if self.current_class_name == '---':
             show_info_message_box('Нет изменений', 'Не выбрано имя класса', QMessageBox.Ok, QMessageBox.Critical)
             return
-        if self.current_raw_bbox_name is None:
-            show_info_message_box('Нет изменений', 'Не выбрана рамка', QMessageBox.Ok, QMessageBox.Critical)
-            return
+        #if self.current_raw_bbox_name is None:
+        #    show_info_message_box('Нет изменений', 'Не выбрана рамка', QMessageBox.Ok, QMessageBox.Critical)
+        #    return
         
-        registered_bbox_name = self.obj_descr2registered_bbox_dict[self.current_class_name]
-        self.raw_bbox2registered_bbox_mapping.update({self.current_raw_bbox_name: registered_bbox_name})
+        
         self.close()
 
     def bboxes_combobox_value_changed(self, value):
@@ -276,6 +282,215 @@ class RegisterObjectsDialog(QDialog):
 
     def available_class_names_combobox_value_changed(self, value):
         self.current_class_name = value
+
+class DeleteTrackingObjectsDialog(QDialog):
+    def __init__(self, registered_objects_container):
+        '''
+        Данное диалоговое окно служит для выбора человека, движение которого мы отслеживаем
+        Диалоговое окно должно выскакивать после первого кадра.
+        registered_objects_container - контейнер (), где хранятся все классы отслеживаемых объектов с индексами
+        available_classes_list - список доступных классов 
+        registration_type - тип регистрации - полная, выбор класса, введение информации
+        '''
+        super().__init__()
+        
+        self.setMinimumWidth(300)
+
+        # контейнер, хранящий имена зарегистрированных объектов и их индексы
+        self.registered_objects_container = registered_objects_container
+
+        # этот словарь нужен для индексации экземпляров отдельных классов
+        #self.classes_ids_dict = self.get_all_classes_ids_dict()
+
+        self.setWindowTitle('Удаление отслежиываемых объектов')
+        
+        choose_removing_obj_label = QLabel(text='Выберите объект из списка:')
+        
+        self.save_and_exit_button = QPushButton('Сохранить и выйти')
+        self.exit_without_save_button = QPushButton('Выйти без сохранения')
+
+        # выпадающий список с зарегистрированными объектами
+        self.registered_bboxes_combobox = QComboBox()
+
+        # заполнение выпадающих списков значениями
+        #
+        # зарегистрированные рамки
+        registered_bboxes = registered_objects_container.get_registered_bboxes()
+        registered_bboxes_list = [
+            f"{row['object_description']},{row['class_name']},{row['object_idx']}" for idx, row in registered_bboxes.iterrows()]
+        self.registered_bboxes_combobox.addItems(['---']+registered_bboxes_list)
+        
+        self.registered_bboxes_combobox.activated[str].connect(self.bboxes_combobox_value_changed)
+
+        self.save_and_exit_button.clicked.connect(self.save_and_exit)
+        self.exit_without_save_button.clicked.connect(self.exit_without_save)
+        
+        # Присвоение значений списков по умолчанию
+        self.current_class_name = '---'
+        self.current_object_descr = ''
+        self.current_class_idx = -1
+        
+        functional_layout = QHBoxLayout()
+        
+        functional_layout.addWidget(choose_removing_obj_label)
+        functional_layout.addWidget(self.registered_bboxes_combobox)
+        
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(self.save_and_exit_button)
+        buttons_layout.addWidget(self.exit_without_save_button)
+                
+        main_layout = QVBoxLayout()
+        main_layout.addLayout(functional_layout)
+        main_layout.addLayout(buttons_layout)
+        self.setLayout(main_layout)
+
+    def update_object_desr(self, text):
+        self.current_object_descr = text
+
+    def exit_without_save(self):
+        self.current_class_name == '---'
+        self.current_class_idx = -1
+        self.current_object_descr = ''
+        self.close()
+
+    def save_and_exit(self):
+        '''
+        Меняем имя класса и номер у рамки
+        '''
+        if self.current_class_name == '---':
+            show_info_message_box('Нет изменений', 'Не выбрано имя класса', QMessageBox.Ok, QMessageBox.Critical)
+            return
+        
+        result = show_info_message_box(
+            'УДАЛЕНИЕ ОБЪЕКТА!',
+            'ВНИМАНИЕ!\nВЫ УДАЛЯЕТЕ ОБЪЕКТ ИЗ БАЗЫ\nОТСЛЕЖИВАЕМЫХ ОБЪЕКТОВ\nЭТУ ОПЕРАЦИЮ НЕЛЬЗЯ ОТМЕНИТЬ\nПРОДОЛЖИТЬ?',
+            buttons=QMessageBox.Yes | QMessageBox.No,
+                icon_type=QMessageBox.Warning
+            )
+        if result == QMessageBox.No:
+            return
+        #if self.current_raw_bbox_name is None:
+        #    show_info_message_box('Нет изменений', 'Не выбрана рамка', QMessageBox.Ok, QMessageBox.Critical)
+        #    return
+        
+        self.close()
+
+    def bboxes_combobox_value_changed(self, value):
+        # ищем рамку с теми же самыми именем класса и индексом
+        #class_name, id = value.split(',')
+        #!!!!
+        description, class_name, class_idx = value.split(',')
+        self.current_object_descr = description
+        self.current_class_name = class_name
+        self.current_class_idx = int(class_idx)
+        #self.current_bbox.class_name = class_name
+
+class AssociateRegisteredAndAutoBboxesDialog(QDialog):
+    def __init__(self, registered_objects_container):
+        '''
+        Данное диалоговое окно служит для выбора человека, движение которого мы отслеживаем
+        Диалоговое окно должно выскакивать после первого кадра.
+        '''
+        super().__init__()
+        
+        self.setMinimumWidth(250)
+
+        # показвтели, которые мы меняем
+        self.current_auto_bbox_name = '---'
+        self.current_auto_idx = -1
+        self.current_registered_class_name = '---'
+        self.current_registered_idx = -1
+        self.current_registered_object_descr = '---'
+        
+        # контейнер, хранящий имена зарегистрированных объектов и их индексы
+        self.registered_objects_container = registered_objects_container
+
+        # этот словарь нужен для индексации экземпляров отдельных классов
+        #self.classes_ids_dict = self.get_all_classes_ids_dict()
+
+        self.setWindowTitle('Ассоциация автоматических и зарегистрированных рамок')
+        
+        self.save_and_exit_button = QPushButton('Сохранить и выйти')
+        self.exit_without_save_button = QPushButton('Выйти без сохранения')
+        self.registered_objects_combobox = QComboBox()
+        self.auto_bboxes_combobox = QComboBox()
+        
+        # заполнение выпадающих списков значениями
+        registered_bboxes = registered_objects_container.get_registered_bboxes()
+        registered_bboxes_list = [
+            f"{row['object_description']},{row['class_name']},{row['object_idx']}" for idx, row in registered_bboxes.iterrows()]
+        self.registered_objects_combobox.addItems(['---']+registered_bboxes_list)
+        
+        auto_bboxes = registered_objects_container.get_autogenerated_bboxes()
+        auto_bboxes_list = [
+            f"{row['class_name']}(AG),{row['auto_idx']}" for idx, row in auto_bboxes.iterrows()]
+        self.auto_bboxes_combobox.addItems(['---']+auto_bboxes_list)
+        
+        self.registered_objects_combobox.activated[str].connect(self.registered_objects_combobox_value_changed)
+        self.auto_bboxes_combobox.activated[str].connect(self.auto_bboxes_combobox_value_changed)
+
+        self.save_and_exit_button.clicked.connect(self.save_and_exit)
+        self.exit_without_save_button.clicked.connect(self.exit_without_save)
+
+        titles_layout = QVBoxLayout()
+        titles_layout.addWidget(QLabel(text='Автоматически сгенерированная рамка:'))
+        titles_layout.addWidget(QLabel(text='Зарегистрированный объект:'))
+        comboboxes_layout = QVBoxLayout()
+        comboboxes_layout.addWidget(self.auto_bboxes_combobox)
+        comboboxes_layout.addWidget(self.registered_objects_combobox)
+        functional_layout = QHBoxLayout()
+        functional_layout.addLayout(titles_layout)
+        functional_layout.addLayout(comboboxes_layout)
+        
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(self.save_and_exit_button)
+        buttons_layout.addWidget(self.exit_without_save_button)
+                
+
+        main_layout = QVBoxLayout()
+        main_layout.addLayout(functional_layout)
+        main_layout.addLayout(buttons_layout)
+        self.setLayout(main_layout)
+
+    def exit_without_save(self):
+        self.current_auto_bbox_name = '---'
+        self.current_auto_idx = -1
+        self.current_registered_class_name = '---'
+        self.current_registered_idx = -1
+        self.current_registered_object_descr = '---'
+        self.close()
+
+    def save_and_exit(self):
+        '''
+        Меняем имя класса и номер у рамки
+        '''
+        if self.current_registered_class_name == '---':
+            show_info_message_box('Нет изменений', 'Не выбрана автоматически сгенерированная рамка', QMessageBox.Ok, QMessageBox.Critical)
+            return
+        if self.current_auto_bbox_name == '---':
+            show_info_message_box('Нет изменений', 'Не выбран зарегистрированный объект', QMessageBox.Ok, QMessageBox.Critical)
+            return
+        
+        self.close()
+
+    def registered_objects_combobox_value_changed(self, value):
+        if value == '---':
+            self.current_registered_object_descr = '---'
+            self.current_registered_class_name = '---'
+            self.current_registered_idx = -1
+        else:
+            self.current_registered_object_descr, self.current_registered_class_name, self.current_registered_idx = value.split(',')
+            self.current_registered_idx = int(self.current_registered_idx)
+
+    def auto_bboxes_combobox_value_changed(self, value):
+        if value == '---':
+            self.current_auto_bbox_name = '---'
+            self.current_auto_idx = -1
+        else:
+            self.current_auto_bbox_name, self.current_auto_idx  = value.split('(AG),')
+            self.current_auto_idx = int(self.current_auto_idx)
+
 
 class SetFrameIdxDialog(QDialog):
     def __init__(self, frames_num):
@@ -373,7 +588,7 @@ class AddTrackingObjectDialog(QDialog):
         self.selected_class_name = None
         self.object_descr = ''
 
-
+        available_classes_list = sorted(available_classes_list)
         self.available_classes_list = available_classes_list
         self.available_classes_combobox = QCheckBox()
         self.available_classes_combobox.addItems(self.available_classes_list)
@@ -433,7 +648,7 @@ class TrackerWindow(QMainWindow):
         self.tracker_type = 'yolov8x.pt' if torch.cuda.is_available() else 'yolov8s.pt'
 
         #self.tracker = None #Yolov8Tracker(model_type=tracker_type) он инициализируется при открытии файла
-        # DEBUG
+        
         self.tracker = Yolov8Tracker(model_type=tracker_type)
 
         self.screen_width = screen_width
@@ -459,27 +674,28 @@ class TrackerWindow(QMainWindow):
         self.show_tracked_checkbox = QCheckBox('Показать отслеживаемые объекты')
 
         register_objects_button = QPushButton('Регистрация нового объекта')
+        delete_registered_objects_button = QPushButton('Удаление зарегистрированного объекта')
+        associate_auto_bboxes_button = QPushButton('Ассоциировать автоматические рамки')
         #cancell_register_objects_button = QPushButton('Отмена регистрации всех объектов')
         #add_new_object_button = QPushButton('Добавить новый объект')
         
         #reset_tracker_and_set_frame_button = QPushButton('Сбросить трекер и перейти на заданный кадр')
         
-        #show_raw_button = QPushButton('Показать только автоматически сгенерированные рамки')
+        show_auto_bboxes_button = QPushButton('Показать только автоматически сгенерированные рамки')
         #show_registered_button = QPushButton('Показать все зарегистрированные рамки')
-        #show_tracked_button = QPushButton('Показать все отслеживаемые рамки')
+        show_tracked_button = QPushButton('Показать только отслеживаемые рамки')
         show_tracked_and_raw_button = QPushButton('Показать отслеживаемые и сгенерированные рамки')
         
 
-        #self.classes_with_description_table = QTableWidget()
-        #self.classes_with_description_table.setColumnCount(2)
-        #self.classes_with_description_table.setColumnCount(3)
-        #self.classes_with_description_table.setW
+        self.classes_with_description_table = QTableWidget()
+        self.classes_with_description_table.setColumnCount(4)
         #self.classes_with_description_table.setHorizontalHeaderLabels(["Описание объекта", "Обозначение\nрамки"])
-        #self.classes_with_description_table.setHorizontalHeaderLabels(["№", "Класс", "Описание объекта"])
-        #self.classes_with_description_table.setColumnWidth(0, 30)
-        #self.classes_with_description_table.setColumnWidth(1, 70)
-        #self.classes_with_description_table.setColumnWidth(2, 170)
-        #self.classes_with_description_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.classes_with_description_table.setHorizontalHeaderLabels(["№", "Класс", "Описание объекта", "Автоматическая рамка"])
+        self.classes_with_description_table.setColumnWidth(0, 30)
+        self.classes_with_description_table.setColumnWidth(1, 70)
+        self.classes_with_description_table.setColumnWidth(2, 170)
+        self.classes_with_description_table.setColumnWidth(2, 170)
+        self.classes_with_description_table.setEditTriggers(QTableWidget.NoEditTriggers)
         
         # чтение списка классов из json
         with open('settings.json', 'r', encoding='utf-8') as fd:
@@ -497,19 +713,21 @@ class TrackerWindow(QMainWindow):
         next_frame_button.clicked.connect(self.next_frame_button_handling)
         previous_frame_button.clicked.connect(self.previous_frame_button_handling)
         #autoplay_button.clicked.connect(self.autoplay)
+        delete_registered_objects_button.clicked.connect(self.delete_registered_handling)
         register_objects_button.clicked.connect(self.register_objects_handling)
+        associate_auto_bboxes_button.clicked.connect(self.associate_auto_bboxes_handling)
         #add_new_object_button.clicked.connect(self.add_new_person_handling)
         #cancell_register_objects_button.clicked.connect(self.cancell_register_objects_button_handling)
         #reset_tracker_and_set_frame_button.clicked.connect(self.reset_tracker_and_set_frame_button_handling)
-        #show_raw_button.clicked.connect(self.show_raw_button_handling)
+        show_auto_bboxes_button.clicked.connect(self.show_auto_bboxes_button_handling)
         #show_registered_button.clicked.connect(self.show_registered_button_handing)
-        #show_tracked_button.clicked.connect(self.show_tracked_button_handling)
-        show_tracked_and_raw_button.clicked.connect(self.show_tracked_and_raw_button_handling)
+        show_tracked_button.clicked.connect(self.show_registered_bboxes_button_handling)
+        show_tracked_and_raw_button.clicked.connect(self.show_regstered_and_auto_bboxes_button_handling)
         #self.disable_add_tracking.stateChanged.connect(self.disable_add_tracking_slot)
         self.show_tracked_checkbox.stateChanged.connect(self.show_tracked_checkbox_slot)
 
-        #self.classes_with_description_table.cellClicked.connect(self.table_cell_click_handling)
-        #self.classes_with_description_table.cellEntered.connect(self.table_cell_click_handling)
+        self.classes_with_description_table.cellClicked.connect(self.table_cell_click_handling)
+        self.classes_with_description_table.cellEntered.connect(self.table_cell_click_handling)
 
         # действия для строки меню
         open_file = QAction('Open', self)
@@ -540,9 +758,9 @@ class TrackerWindow(QMainWindow):
         self.prev_next_layout = QHBoxLayout()
 
         self.bboxes_display_control_layout.addWidget(bboxes_correction_info)
-        #self.bboxes_display_control_layout.addWidget(show_raw_button)
+        self.bboxes_display_control_layout.addWidget(show_auto_bboxes_button)
         #self.bboxes_display_control_layout.addWidget(show_registered_button)
-        #self.bboxes_display_control_layout.addWidget(show_tracked_button)
+        self.bboxes_display_control_layout.addWidget(show_tracked_button)
         self.bboxes_display_control_layout.addWidget(show_tracked_and_raw_button)
         self.bboxes_display_control_layout.addStretch(1)
 
@@ -560,9 +778,11 @@ class TrackerWindow(QMainWindow):
         self.control_layout.addLayout(self.prev_next_layout)
 
         # пока что спрячем разворачивающийся список классов...
-        #self.displaying_classes_layout.addWidget(self.classes_with_description_table)
+        self.displaying_classes_layout.addWidget(self.classes_with_description_table)
 
         self.displaying_classes_layout.addWidget(register_objects_button)
+        self.displaying_classes_layout.addWidget(delete_registered_objects_button)
+        self.displaying_classes_layout.addWidget(associate_auto_bboxes_button)
         #self.displaying_classes_layout.addWidget(cancell_register_objects_button)
         #self.displaying_classes_layout.addWidget(add_new_object_button)
         
@@ -655,7 +875,6 @@ class TrackerWindow(QMainWindow):
         if not is_changed:
             return
         else:
-            #print(f'{select_detector_dialog.current_detector}')
             self.tracker_type = select_detector_dialog.current_detector
             if self.video_capture is None:
                 return
@@ -714,25 +933,21 @@ class TrackerWindow(QMainWindow):
 
         
 
-    def show_raw_button_handling(self):
+    def show_auto_bboxes_button_handling(self):
         if self.frame_with_boxes is None:
             return
-        self.frame_with_boxes.bboxes_container = self.raw_bboxes_dict
+        self.frame_with_boxes.bboxes_container.change_bboxes_displaying_type(displaying_type='auto')
 
-    def show_tracked_and_raw_button_handling(self):
+    def show_regstered_and_auto_bboxes_button_handling(self):
         if self.frame_with_boxes is None:
             return
-        self.frame_with_boxes.bboxes_container = self.tracked_and_raw_bboxes_dict
+        self.frame_with_boxes.bboxes_container.change_bboxes_displaying_type(displaying_type='full')
 
-    def show_tracked_button_handling(self):
+    def show_registered_bboxes_button_handling(self):
         if self.frame_with_boxes is None:
             return
-        self.frame_with_boxes.bboxes_container = self.tracking_bboxes_dict
+        self.frame_with_boxes.bboxes_container.change_bboxes_displaying_type(displaying_type='registered')
 
-    def show_registered_button_handing(self):
-        if self.frame_with_boxes is None:
-            return
-        self.frame_with_boxes.bboxes_container = self.registered_bboxes_dict
 
     def cancell_register_objects_button_handling(self):
         if len(self.obj_descr2registered_bbox_dict) == 0:
@@ -786,52 +1001,96 @@ class TrackerWindow(QMainWindow):
             
             return
         
-    def register_objects_handling(self):
+    def associate_auto_bboxes_handling(self):
+        '''
+        Обработчик кнопки ассоциирования автоматически сгененрированных рамок и 
+        '''
         self.is_autoplay = False
+        if self.video_capture is None:
+            return
+        
+        associate_auto_bboxes_dialog = AssociateRegisteredAndAutoBboxesDialog(
+            registered_objects_container=self.frame_with_boxes.bboxes_container
+        )
+        associate_auto_bboxes_dialog.exec()
 
-        # DEBUG
-        from test import BboxesContainer
-        container = BboxesContainer()
-        bbox1 = Bbox(1, 2, 3, 4, 100, 100, class_name='person', auto_idx=1, manual_idx=-1, color=(0,0,0), tracking_type='yolo')
-        bbox2 = Bbox(1, 4, 8, 8, 100, 100, class_name='person', auto_idx=2, manual_idx=-1, color=(0,0,0), tracking_type='yolo')
-        bbox3 = Bbox(6, 6, 6, 6, 100, 100, class_name='person', auto_idx=3, manual_idx=-1, color=(0,0,0), tracking_type='yolo')
-        container.update_bbox(bbox1, 'auto')
-        container.update_bbox(bbox2, 'auto')
-        container.update_bbox(bbox3, 'auto')
-        container.register_auto_bbox(class_name='person', auto_idx=1, object_description='ПИДОРАС')
-        container.register_auto_bbox(class_name='person', auto_idx=2, object_description='ПИДОРАСИНА')
-        self.frame_with_boxes = BboxFrameTracker(img=np.zeros((14, 88, 3), dtype=np.uint8))
-        self.frame_with_boxes.bboxes_container = container
+        current_auto_bbox_name = associate_auto_bboxes_dialog.current_auto_bbox_name
+        current_auto_idx = associate_auto_bboxes_dialog.current_auto_idx
+        current_registered_class_name = associate_auto_bboxes_dialog.current_registered_class_name
+        current_registered_idx = associate_auto_bboxes_dialog.current_registered_idx
+        current_registered_object_descr = associate_auto_bboxes_dialog.current_registered_object_descr
 
-       
-        # DEBUG END
+        if current_auto_bbox_name == '---' or current_registered_object_descr == '---':
+            return
+
+        path_to_db = glob.glob(os.path.join(f"{self.settings_dict['last_opened_folder']}", "*.csv"))[0]
+        self.frame_with_boxes.bboxes_container.assocoate_auto_bbox_with_registered_object(
+            class_name=current_auto_bbox_name,
+            auto_idx=current_auto_idx,
+            object_description=current_registered_object_descr,
+            registered_idx=current_registered_idx
+        )
+        #print('DEBUG')
+        #print(self.frame_with_boxes.bboxes_container.bboxes_df)
+        self.update_objects_descr_table()
+
+    def delete_registered_handling(self):
+        '''
+        Обработчик кнопки удаления нового объекта
+        '''
+        self.is_autoplay = False
+        if self.video_capture is None:
+            return
+        
+        delete_registered_dialog = DeleteTrackingObjectsDialog(
+            registered_objects_container=self.frame_with_boxes.bboxes_container
+        )
+        delete_registered_dialog.exec()
+
+        deleting_class_name = delete_registered_dialog.current_class_name
+        deleting_class_idx = delete_registered_dialog.current_class_idx
+        deleting_object_descr = delete_registered_dialog.current_object_descr
+        
+        if deleting_class_name == '---':
+            return
+        
+        
+        path_to_db = glob.glob(os.path.join(f"{self.settings_dict['last_opened_folder']}", "*.csv"))[0]
+        self.frame_with_boxes.bboxes_container.delete_from_tracking_objects_db(
+            deleting_class_name, deleting_class_idx, deleting_object_descr, path_to_db)
+        
+        #print('AFTER:')
+        #print(self.frame_with_boxes.bboxes_container.registered_objects_db)
+
+        self.update_objects_descr_table()
+
+    def register_objects_handling(self):
+        '''
+        Обработчик кнопки регистрации нового объекта
+        '''
+        self.is_autoplay = False
+        if self.video_capture is None:
+            return
 
         # вызов диалогового окна позволяет изменить имя класса всего для одной рамки
-        register_persons_dialog = RegisterObjectsDialog(
+        register_persons_dialog = RegisterTrackingObjectsDialog(
             registered_objects_container=self.frame_with_boxes.bboxes_container,
             available_classes_list=list(self.tracker.tracker.names.values()))
         register_persons_dialog.exec()
 
-        if register_persons_dialog.current_obj_descr is None or register_persons_dialog.current_raw_bbox_name is None:
-            return 1
-        
-        self.current_frame_raw_bbox_name2registered_bbox_name_mapping = register_persons_dialog.raw_bbox2registered_bbox_mapping
-        
-        # Вычищаем общий словарь отображений от повторяющихся имен зарегистрированных рамок
-        for raw_bbox_name, registered_bbox_name in list(self.all_frames_raw_bbox_name2registered_bbox_name_dict.items()):
-            if registered_bbox_name in self.current_frame_raw_bbox_name2registered_bbox_name_mapping.inverse_mapping_dict:
-                #key_to_pop = self.current_frame_raw_bbox_name2registered_bbox_name_mapping.inverse_mapping_dict[registered_bbox_name]
-                self.all_frames_raw_bbox_name2registered_bbox_name_dict.pop(raw_bbox_name)
+        current_class_name = register_persons_dialog.current_class_name
+        current_object_descr = register_persons_dialog.current_object_descr
+        #current_auto_bbox = register_persons_dialog.current_auto_bbox
 
-        # обновляем словарь возможных отображений {имя сгенерированной рамки: имя зарегистрированной рамки}
-        self.all_frames_raw_bbox_name2registered_bbox_name_dict.update(self.current_frame_raw_bbox_name2registered_bbox_name_mapping.forward_mapping_dict)
+        # если имя класса осталось по умолчанию, то выходим
+        if current_class_name == '---':
+            return
 
+        # добавляем объект в БД отслеживаемых объектов
+        path_to_db = glob.glob(os.path.join(f"{self.settings_dict['last_opened_folder']}", "*.csv"))[0]
+        self.frame_with_boxes.bboxes_container.append_to_tracking_objects_db(current_class_name, current_object_descr, path_to_db)
 
-        self.register_new_bbox()
-        self.registered_bboxes_dict, self.tracking_bboxes_dict, self.tracked_and_raw_bboxes_dict \
-            = self.update_registered_and_tracking_objects_dicts('raw') #???
-        
-
+        self.update_objects_descr_table()
 
     def update_frame_raw_bboxes2registered_bboxes_dict(self, new_raw_bbox2obj_descr_dict):
         '''
@@ -1033,18 +1292,14 @@ class TrackerWindow(QMainWindow):
             self.classes_with_description_table.item(row_idx, 0).setSelected(False)
             self.classes_with_description_table.item(row_idx, 1).setSelected(False)
             self.classes_with_description_table.item(row_idx, 2).setSelected(False)
-
-
+            self.classes_with_description_table.item(row_idx, 3).setSelected(False)
 
     def table_cell_click_handling(self, row, col):
         item = self.classes_with_description_table.item(row, col)
 
-        print(item.text())
-        
         # потенциально медленная операция
         self.registered_bboxes_dict, self.tracking_bboxes_dict, self.tracked_and_raw_bboxes_dict \
             = self.update_registered_and_tracking_objects_dicts('raw')
-
 
     def search_first_appearance_button_slot(self):
         '''
@@ -1119,7 +1374,6 @@ class TrackerWindow(QMainWindow):
         ТУТ ПОТЕНЦИАЛЬНО СКРЫТА ОШИБКА!!!
         '''
         self.autosave_mode = self.disable_add_tracking.isChecked()
-        print(self.disable_add_tracking.isChecked())
 
     def show_tracked_checkbox_slot(self):
         self.is_tracked_bboxes_show = self.show_tracked_checkbox.isChecked()
@@ -1134,26 +1388,48 @@ class TrackerWindow(QMainWindow):
         self.imshow_thread.new_bbox_create_signal.connect(self.label_new_bbox)
 
     def label_new_bbox(self):
-        '''
-        print('-----LABEL_NEW_BBOX-----')
-        print('BEFORE')
-        print(f'registered {self.registered_bboxes_dict}')
-        print()
-        print(f'tracking {self.tracking_bboxes_dict}')
-        print()
-        print(f'tracking {self.raw_bboxes_dict}')
-        print()
-        print(f'tracked_and_raw {self.tracked_and_raw_bboxes_dict}')
-        print()
-        '''
+        
         self.is_autoplay = False
-        # вызываем новое диалоговое окно, чтобы выбрать имя класса для рамки
-        label_new_bbox_dialog = LabelNewBoxDialog(
-            self.frame_with_boxes.bboxes_container['None,None'], # ищем в контейнере рамок новую рамку, идентифицируемую по имени ['None,None']
-            self.obj_descr2registered_bbox_dict,
-            self.tracked_and_raw_bboxes_dict)
-        label_new_bbox_dialog.exec()
 
+        # ищем вновь созданную рамку по имени класса ('?'), автоматическому индексу (-1) и "ручному" индексу (-1)
+        manually_created_bbox_df = self.frame_with_boxes.bboxes_container.find_bbox(class_name='?', auto_idx=-1, registered_idx=-1)        
+        manually_created_bbox = manually_created_bbox_df['bbox'].values[0]
+        print('DEBUG')
+        print(manually_created_bbox)
+        
+        # вызываем новое диалоговое окно, чтобы выбрать имя класса для рамки        
+        label_new_bbox_dialog = LabelNewBoxDialog(
+            registered_objects_container=self.frame_with_boxes.bboxes_container)
+        label_new_bbox_dialog.exec()
+        current_class_name = label_new_bbox_dialog.current_class_name
+        current_object_descr = label_new_bbox_dialog.current_object_descr
+        current_registered_idx = label_new_bbox_dialog.current_registered_idx
+
+        if current_class_name == '---':
+            self.frame_with_boxes.bboxes_container.pop(manually_created_bbox)
+            return
+        manually_created_bbox.class_name = current_class_name
+        manually_created_bbox.registered_idx = current_registered_idx
+        manually_created_bbox.color = (0, 255, 0)
+
+        existent_bbox = self.frame_with_boxes.bboxes_container.find_bbox(
+            class_name=current_class_name, registered_idx=current_registered_idx, object_description=current_object_descr)
+        if len(existent_bbox) == 1:
+            self.frame_with_boxes.bboxes_container.pop(existent_bbox)
+        
+        self.frame_with_boxes.bboxes_container.update_bbox(manually_created_bbox)
+
+        self.frame_with_boxes.bboxes_container.assocoate_auto_bbox_with_registered_object(
+            class_name=current_class_name,
+            auto_idx=manually_created_bbox.auto_idx,
+            object_description=current_object_descr,
+            registered_idx=current_registered_idx
+        )
+
+        self.update_objects_descr_table()
+
+
+        '''
         self.frame_with_boxes.bboxes_container.pop('None,None')
         if label_new_bbox_dialog.confirm_bbox_creation:
             created_bbox_name = label_new_bbox_dialog.current_bbox_name
@@ -1161,18 +1437,9 @@ class TrackerWindow(QMainWindow):
             self.tracked_and_raw_bboxes_dict[created_bbox_name] = deepcopy(label_new_bbox_dialog.current_bbox)
             self.registered_bboxes_dict, self.tracking_bboxes_dict, self.tracked_and_raw_bboxes_dict \
                     = self.update_registered_and_tracking_objects_dicts('raw_and_tracked')
-           
         '''
-        print('AFTER')
-        print(f'registered {self.registered_bboxes_dict}')
-        print()
-        print(f'tracking {self.tracking_bboxes_dict}')
-        print()
-        print(f'raw {self.raw_bboxes_dict}')
-        print()
-        print(f'tracked_and_raw {self.tracked_and_raw_bboxes_dict}')
-        print('|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||')
-        '''
+
+        
 
 
     def reset_tracker(self):
@@ -1240,8 +1507,6 @@ class TrackerWindow(QMainWindow):
             self.obj_descr2registered_bbox_dict[obj_descr] = f'person,{idx}'
             self.registered_bbox2obj_descr_dict[f'person,{idx}'] = obj_descr
             
-            #self.classes_with_description_table.setItem(idx, 0, QTableWidgetItem(obj_descr))
-            #self.classes_with_description_table.setItem(idx, 1, QTableWidgetItem(f'person,{idx}'))
             self.classes_with_description_table.setItem(idx, 0, QTableWidgetItem(f'{idx}'))
             self.classes_with_description_table.setItem(idx, 1, QTableWidgetItem(f'person,{idx}'))
             self.classes_with_description_table.setItem(idx, 2, QTableWidgetItem(obj_descr))
@@ -1278,6 +1543,68 @@ class TrackerWindow(QMainWindow):
         path = os.sep.join(path.split('/'))
         path_to_folder, name = os.path.split(path)
         return
+    
+    def get_object_descr_list(self):
+        '''
+        Получение списка описаний объектов. Каждый эл-т списка составляет кортеж из четырех элементов:
+        индекс зарегистрированного объекта, имя класса, описание объекта, имя автоматической рамки
+        '''
+        objects_descr_list = []
+        for i, row in self.frame_with_boxes.bboxes_container.registered_objects_db.sort_values(by=['class_name', 'object_idx']).iterrows():
+            registered_idx = row['object_idx']
+            class_name = row['class_name']
+            object_descr = row['object_description']
+            auto_bbox_name = ''
+            # ищем автоматическую рамку по 
+            bboxes = self.frame_with_boxes.bboxes_container.get_auto_bbox_from_registered(class_name, registered_idx, object_descr)
+            
+            if len(bboxes) == 1:
+                print('DEBUG get_object_descr_list')
+                print(bboxes)
+                auto_bbox_name = f'{class_name},(AG){bboxes["auto_idx"].values[0]}'
+
+            objects_descr_list.append((registered_idx, class_name, object_descr, auto_bbox_name))
+        return objects_descr_list
+
+    def update_objects_descr_table(self):
+        print('DEBUG update_objects_descr_table')
+        print(self.frame_with_boxes.bboxes_container.bboxes_df)
+        print('-----------------------------------------------')
+        objects_descr_list = self.get_object_descr_list()
+        #print('DEBUG2')
+        #print(objects_descr_list)
+        
+        self.classes_with_description_table.setRowCount(len(objects_descr_list))
+        for i, (registered_idx, class_name, obj_descr, auto_bbox_name) in enumerate(objects_descr_list):
+            # заполняем общий прямой и обратный словари для взаимного отображения описаний объектов и названий зарегистрированных рамок
+            #self.obj_descr2registered_bbox_dict[obj_descr] = f'person,{idx}'
+            #self.registered_bbox2obj_descr_dict[f'person,{idx}'] = obj_descr
+            
+            #self.classes_with_description_table.setItem(idx, 0, QTableWidgetItem(obj_descr))
+            #self.classes_with_description_table.setItem(idx, 1, QTableWidgetItem(f'person,{idx}'))
+            self.classes_with_description_table.setItem(i, 0, QTableWidgetItem(f'{registered_idx}'))
+            self.classes_with_description_table.setItem(i, 1, QTableWidgetItem(f'{class_name},{registered_idx}'))
+            self.classes_with_description_table.setItem(i, 2, QTableWidgetItem(obj_descr))
+            self.classes_with_description_table.setItem(i, 3, QTableWidgetItem(auto_bbox_name))
+
+
+    
+    def read_tracking_objects_db(self, path_to_dir, name):
+        '''
+        Чтение базы данных, содержащей информацию о файлах
+        '''
+        name = '.'.join(name.split('.')[:-1])
+        path_to_db = os.path.join(path_to_dir, f'{name}.csv')
+        if os.path.isfile(path_to_db):
+            database = pd.read_csv(path_to_db)
+            database = database.fillna(value='')
+        else:
+            database = pd.DataFrame(columns=['object_idx', 'class_name', 'object_description'])
+            database.to_csv(path_to_db, index=False)
+
+        return database
+
+
         
     def open_file(self):
         # закрываем поток, который отображает кадры видео
@@ -1316,6 +1643,9 @@ class TrackerWindow(QMainWindow):
         with open('settings.json', 'w', encoding='utf-8') as fd:
             json.dump(self.settings_dict, fd)
 
+        # читаем базу данных с объектами, которые надо отслеживать
+        registered_objects_db = self.read_tracking_objects_db(path_to_folder, name)
+
         # формируем путь до папки, куда будут сохраняться рамки
         label_folder_name = '.'.join(name.split('.')[:-1]) + '_labels'
         self.path_to_labelling_folder = os.path.join(path_to_folder, label_folder_name)
@@ -1353,7 +1683,10 @@ class TrackerWindow(QMainWindow):
         self.window_name = name
         
         # создаем объект BboxFrameTracker, позволяющий отображать и изменять локализационные рамки на кадре видео
-        self.frame_with_boxes = BboxFrameTracker(img=frame)
+        self.frame_with_boxes = BboxFrameTracker(img=frame, registered_objects_db=registered_objects_db)
+
+        # обновляем таблицу, где отображены все отслеживаемые объекты
+        self.update_objects_descr_table()
         
         # Подготавливаем и запускаем отдельный поток, в котором будет отображаться кадр с рамками
         # и будут изменяться рамки
@@ -1406,18 +1739,14 @@ class TrackerWindow(QMainWindow):
             pass
         
         # если не выбраны рамки для трекинга, то 
-        if len(self.tracking_bboxes_names_set) == 0:
-            self.is_autoplay = False
-            show_info_message_box('Внимание!', 'Не выбраны объекты для трекинга!\nЧтобы начать воспроизведение видео выберите объекты из таблицы', QMessageBox.Ok, QMessageBox.Warning)
-            return
+        #if len(self.tracking_bboxes_names_set) == 0:
+        #    self.is_autoplay = False
+        #    show_info_message_box('Внимание!', 'Не выбраны объекты для трекинга!\nЧтобы начать воспроизведение видео выберите объекты из таблицы', QMessageBox.Ok, QMessageBox.Warning)
+        #    return
         
         # сохраняем рамки
         self.save_labels()
-        '''
-        print()
-        print()
-        print('/////////////NEW_FRAME/////////////')
-        '''
+
         self.current_frame_idx += 1
         if self.current_frame_idx >= self.frame_number:
             self.is_autoplay = False
@@ -1432,7 +1761,7 @@ class TrackerWindow(QMainWindow):
 
         # при переходе на новый кадр обнуляем словарь для отображения  
         # имен сгенерированных рамок на имена зарегистирированных рамок
-        self.current_frame_raw_bbox_name2registered_bbox_name_mapping = One2OneMapping()
+        #self.current_frame_raw_bbox_name2registered_bbox_name_mapping = One2OneMapping()
         return
 
     def previous_frame_button_handling(self):
@@ -1647,30 +1976,29 @@ class TrackerWindow(QMainWindow):
             
             # выполняем трекинг
             try:
-                self.raw_bboxes_dict = self.tracker.track(
-                    target_class_name='person', #!!!!
+                yolo_predicted_bboxes_container = self.tracker.track(
+                    bboxes_container=self.frame_with_boxes.bboxes_container,
                     source=frame,
                     persist=True,
                     verbose=True
                     )
             except:
                 pass
-
+            
             # обновляем зарегистрированные, отслеживаемые и совместно отслеживаемые и сгенерированные рамки          
             #self.registered_bboxes_dict, self.tracking_bboxes_dict, self.tracked_and_raw_bboxes_dict \
             #    = self.update_registered_and_tracking_objects_dicts(update_source='raw')
             
             # присваиваем объекту, обрабатывающему кадр с рамками, tracked_and_raw_bboxes_dict
-            self.frame_with_boxes.bboxes_container = self.raw_bboxes_dict
+            self.frame_with_boxes.bboxes_container = yolo_predicted_bboxes_container
 
 
             # сравниваем рамки текущего кадра с рамками предыдущего кадра
             # В результате получается 
-            self.compare_prev_and_current_tracked_and_raw_bboxes_dicts()
+            #self.compare_prev_and_current_tracked_and_raw_bboxes_dicts()
 
             # еще раз присваиваем объекту, обрабатывающему кадр с рамками, tracked_and_raw_bboxes_dict (ЗОЧЕМ?)
-            self.frame_with_boxes.bboxes_container = self.tracked_and_raw_bboxes_dict
-            
+            #self.frame_with_boxes.bboxes_container = self.tracked_and_raw_bboxes_dict
             
     def stop_showing(self):
         '''
@@ -1695,7 +2023,7 @@ class Yolov8Tracker:
         self.name2class_idx = {val: key for key, val in self.tracker.names.items()}
 
 
-    def track(self, target_class_name, *yolo_args, **yolo_kwargs):
+    def track(self, bboxes_container, *yolo_args, **yolo_kwargs):
         '''
         target_class_name - имя класса, который мы собираемся детектировать
         Return: 
@@ -1703,6 +2031,9 @@ class Yolov8Tracker:
         '''
         # выполнение трекинга 
         results = self.tracker.track(*yolo_args, **yolo_kwargs)[0]
+
+        #print('DEBUG TRACKING')
+        #print(bboxes_container.bboxes_df)
         
         # получение координат рамок
         bboxes = results.boxes.xyxy.long().numpy()
@@ -1724,18 +2055,13 @@ class Yolov8Tracker:
         # этот параметр нужен, чтобы рамка строилась не впритык объекту, а захватывала еще некоторую дополнительную область
         bbox_append_value = int(min(img_rows, img_cols)*0.025)
 
-        bboxes_container = {}
-        
-        #print(bboxes)
-        #print(ids)
-        #print(detected_classes)
-        print(bboxes_container)
+        #bboxes_container = BboxesContainer()
+
 
         for bbox, id, class_name in zip(bboxes, ids, detected_classes):
             
 
             #class_name = f'{target_class_name}{id:03d}'
-            displaying_class_name = f'{class_name}(AG)'
             x0,y0,x1,y1 = bbox
             # добавляем несколько пикселей, чтобы рамка строилась не впритык к объекту
             x0,y0,x1,y1 = x0 - bbox_append_value, y0 - bbox_append_value, x1 + bbox_append_value, y1 + bbox_append_value
@@ -1744,27 +2070,24 @@ class Yolov8Tracker:
             # пока что оставляем всего лишь один цвет - черный
             color = (0,0,0)
 
-            #print(id)
-            #print(x0,y0,x1,y1)
-            #print(class_name)
-            print('-------------')
-            
             bbox = Bbox(
                 x0, y0, x1, y1,
                 img_rows, img_cols,
-                class_name=displaying_class_name,
-                autogen_idx=id,
-                manual_idx=None,
+                class_name=class_name,
+                auto_idx=id,
+                registered_idx=-1,
                 color=color,
+                displaying_type='auto',
                 tracking_type='yolo'
                 )
-            print(bbox)
             
-            bboxes_container[f'{displaying_class_name},{id}'] = bbox
-            # debug
+            #!!!!
+            bboxes_container.update_bbox(bbox)
 
-        #print('ПИДОРАС! ПИДОРАСИНА!', [(k, v) for k, v in bboxes_container.items()])
-        #print(bboxes_container)
+        
+        
+
+
         return bboxes_container
     
     #def register_bboxes
@@ -1805,7 +2128,6 @@ class ImshowThread(QThread):
             if self.frame_with_boxes.is_bbox_created:
                 self.new_bbox_create_signal.emit()
                 self.frame_with_boxes.is_bbox_created = False
-
 
             img_with_boxes = self.frame_with_boxes.render_boxes()
             cv2.imshow(self.window_name, img_with_boxes)

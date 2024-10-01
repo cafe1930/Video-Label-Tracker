@@ -1,6 +1,8 @@
 import numpy as np
 import cv2
 
+import pandas as pd
+
 from PIL import Image, ImageFont, ImageDraw, ImageColor, ImageFont
 
 from copy import deepcopy
@@ -111,7 +113,6 @@ def draw_bbox_with_text(
     '''
 
     x0, y0, x1, y1 = bbox_coords
-    #print(x0, y0, x1, y1)
     image =  Image.fromarray(image)
     cols, rows = image.size
     #x0, y0, x1, y1 = process_box_coords(x0, y0, x1, y1, rows, cols)
@@ -161,9 +162,9 @@ class Bbox:
             img_cols,
             class_name,
             auto_idx,
-            manual_idx,
+            registered_idx,
             color,
-            is_visible=True,
+            displaying_type='auto',
             tracking_type='no'):
 
         '''
@@ -173,6 +174,7 @@ class Bbox:
         class_name - имя класса
         color - цвет рамки
         sample_idx - индекс или номер рамки одного и того же класса для отслеживания ситуаций, когда на изображении много объектов одного и того же класса 
+        displaying_type - отображаемый тип данных: ['auto', 'registered', 'no']
         tracking_type:str - тип трэкинга. Возможные варианты ['yolo', 'opencv', 'no']
         '''
 
@@ -183,7 +185,7 @@ class Bbox:
         # индекс объекта какого-то определенного класса, полученный из автоматического трекера
         self.auto_idx = auto_idx
         # индекс отслеживаемого объекта
-        self.manual_idx = manual_idx
+        self.registered_idx = registered_idx
         # цвет рамки
         self.color = color
 
@@ -209,14 +211,11 @@ class Bbox:
         self.img_cols = img_cols
 
         # флаг для отображения и для трекинга
-        self.is_visible = is_visible
+        self.displaying_type = displaying_type
 
         self.tracking_type = tracking_type
 
-        #print('In bbox constructor')
-        #print(self.coords, self.color, self.class_name, self.id, self.tracking_type)
         
-
     def __hash__(self):
         '''
         Для применения в словарях и множествах
@@ -343,21 +342,17 @@ class Bbox:
     def make_x0y0_lesser_x1y1(self):
         # превращаем строки в числа и фиксируем координаты рамки, чтобы они не выходили за пределы кадра
         x0, y0, x1, y1 = self.coords
-        # debug
-        #print(f'    img_rows={self.img_rows}, img_cols={self.img_cols}')
-        #print(f'    Coords before clip  : x0={x0},y0={y0},x1={x1},y1={y1}')
+
         x0 = np.clip(int(x0), 0, self.img_cols)
         x1 = np.clip(int(x1), 0, self.img_cols)
         y0 = np.clip(int(y0), 0, self.img_rows)
         y1 = np.clip(int(y1), 0, self.img_rows)
-        #print(f'    Coords after clip   : x0={x0},y0={y0},x1={x1},y1={y1}')
 
         # чтобы у нас ширина и высота рамки была не отрицательной, 
         # переставляем местами нулевую и первую координаты, если первая больше нулевой
         x0, x1 = min(x0, x1), max(x0, x1)
         y0, y1 = min(y0, y1), max(y0, y1)
-        #print(f'    Coords after min-max: x0={x0},y0={y0},x1={x1},y1={y1}')
-
+        
         self.coords = (x0, y0, x1, y1)
 
     def iou_compare(self, other_bbox, iou_threshold):
@@ -370,16 +365,13 @@ class Bbox:
         return compute_bbox_area(*self.coords)
     
     def __repr__(self) -> str:
-        #print('In __repr__')
         class_name = self.class_name
         #id = self.id
-        repr_str = f'{class_name},auto_idx:{self.auto_idx},manual_idx:{self.manual_idx}: {self.coords}, visible={self.is_visible}, tracking_type={self.tracking_type}'
-        #print(f'repr_str', repr_str)
+        repr_str = f'{class_name},auto_idx:{self.auto_idx},registered_idx:{self.registered_idx}: {self.coords}, displaying_type={self.displaying_type}, tracking_type={self.tracking_type}'
         return repr_str
 
-
 class BboxFrameTracker:
-    def __init__(self, img):
+    def __init__(self, img, registered_objects_db):
         '''
         Класс служит для создания, изменения и рендеринга множества рамок, локализующих различные объекты в кадре
         Используется в программе Video-Label-Tracker
@@ -390,7 +382,8 @@ class BboxFrameTracker:
         self.img = img.copy()
 
         # словарь, где мы храним все рамки
-        self.bboxes_container = {}
+        #self.bboxes_container = {}
+        self.bboxes_container = BboxesContainer(registered_objects_db)
 
         # координаты изменяемого угла
         self.displayed_corner = None
@@ -417,6 +410,8 @@ class BboxFrameTracker:
         # флаг, сигнализирующий о том, что мы показываем номер рамки одного и того же класса
         self.is_bbox_idx_displayed = True
     
+    
+
     def draw_one_box(self, event, flags, x, y):
         '''
         Создание новой рамки вручную
@@ -429,13 +424,13 @@ class BboxFrameTracker:
                 color = (0, 0, 0)
                 # !!!!!!!
                 auto_idx = -1
-                manual_idx = -1
+                registered_idx = -1
                 current_class_name = '?'
                 self.processing_box = Bbox(
-                    x, y, x, y, rows, cols, current_class_name, auto_idx, manual_idx, color)
+                    x, y, x, y, rows, cols, current_class_name, auto_idx, registered_idx, color)
                 self.processing_box.create_bbox(x, y)
                 # изменение по корректируемой рамке
-                self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
+                self.bboxes_container.update_bbox(self.processing_box)
 
         # mouse is being moved, draw rectangle
         elif event == cv2.EVENT_MOUSEMOVE and not flags & cv2.EVENT_FLAG_CTRLKEY:
@@ -444,7 +439,7 @@ class BboxFrameTracker:
                     # для обеспечения "передвижения" угла рамки, мы постоянно извлекаем станые координаты рамки и добавляем новые
                     self.processing_box.create_bbox(x, y)
                     # изменение по корректируемой рамке
-                    self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
+                    self.bboxes_container.update_bbox(self.processing_box)
                     
         # if the left mouse button was released, set the drawing flag to False
         elif event == cv2.EVENT_LBUTTONUP and not flags & cv2.EVENT_FLAG_CTRLKEY:
@@ -456,7 +451,7 @@ class BboxFrameTracker:
                 self.processing_box.stop_bbox_creation()
 
                 # изменение по корректируемой рамке
-                self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
+                self.bboxes_container.update_bbox(self.processing_box)
 
                 self.processing_box = None
                 
@@ -466,7 +461,7 @@ class BboxFrameTracker:
             #self.is_bboxes_changed = False
             self.is_bbox_created = False
 
-    def correct_rectangle(self, event, flags, bbox_name, x, y):
+    def correct_rectangle(self, event, flags, bbox, x, y):
         rows, cols, channels = self.img.shape
         if flags & cv2.EVENT_FLAG_CTRLKEY:
             if event == cv2.EVENT_LBUTTONDOWN:
@@ -474,10 +469,11 @@ class BboxFrameTracker:
                 if self.processing_box is None:
                     # здесь self.processing_box должен быть проинициализирован, иначе возвращаемся из функции
                     # извлечение из словаря по заданному имени
-                    self.processing_box = self.bboxes_container[bbox_name]
+                    self.processing_box = bbox
                     self.processing_box.corner_drag(x, y)
                     # изменение по корректируемой рамке
-                    self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
+                    # !!!!!
+                    self.bboxes_container.update_bbox(self.processing_box)
         
             # mouse is being moved, draw rectangle
             elif event == cv2.EVENT_MOUSEMOVE:
@@ -486,7 +482,7 @@ class BboxFrameTracker:
                         # для обеспечения "передвижения" угла рамки, мы постоянно извлекаем станые координаты рамки и добавляем новые
                         self.processing_box.corner_drag(x, y)
                         # изменение по корректируемой рамке
-                        self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
+                        self.bboxes_container.update_bbox(self.processing_box)
                 
             # if the left mouse button was released, set the drawing flag to False
             elif event == cv2.EVENT_LBUTTONUP:
@@ -497,7 +493,7 @@ class BboxFrameTracker:
                     self.processing_box.make_x0y0_lesser_x1y1()
                     self.processing_box.stop_corner_drag()
                     # изменение по корректируемой рамке
-                    self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
+                    self.bboxes_container.update_bbox(self.processing_box)
                     self.processing_box = None
                     self.is_bboxes_changed = True
         else:
@@ -507,15 +503,15 @@ class BboxFrameTracker:
             self.processing_box = None
             self.is_bboxes_changed = False
 
-    def drag_box(self, event, flags, bbox_name, x, y):
+    def drag_box(self, event, flags, bbox, x, y):
         if event == cv2.EVENT_LBUTTONDOWN:
             if flags & cv2.EVENT_FLAG_CTRLKEY:
                 if self.processing_box is None:
                     # извлекаем корректируемую рамку из списка по заданному имени
-                    self.processing_box = self.bboxes_container[bbox_name]
+                    self.processing_box = bbox
                     self.processing_box.box_drag(x, y)
                     # изменение по корректируемой рамке
-                    self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
+                    self.bboxes_container.update_bbox(self.processing_box)
         # mouse is being moved, draw rectangle
         elif event == cv2.EVENT_MOUSEMOVE:
             if flags & cv2.EVENT_FLAG_CTRLKEY:
@@ -524,7 +520,7 @@ class BboxFrameTracker:
                         # для обеспечения "передвижения" угла рамки, мы постоянно извлекаем станые координаты рамки и добавляем новые
                         self.processing_box.box_drag(x, y)
                         # изменение по корректируемой рамке
-                        self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
+                        self.bboxes_container.update_bbox(self.processing_box)
             else:
                 self.processing_box.make_x0y0_lesser_x1y1()
                 self.processing_box.stop_box_drag()
@@ -534,24 +530,15 @@ class BboxFrameTracker:
             if flags & cv2.EVENT_FLAG_CTRLKEY:
                 if self.processing_box is not None:
                     if self.processing_box.is_bbox_dragging:
-                        # debug
-                        #print('-----------------------------------------')
-                        #print(f'Bbox before last drag: {self.processing_box}')
                         self.processing_box.box_drag(x, y)
-                        #print(f'Bbox after last drag: {self.processing_box}')
                         self.processing_box.make_x0y0_lesser_x1y1()
-                        #print(f'Bbox size adjusting: {self.processing_box}')
                         self.processing_box.stop_box_drag()
 
                         # изменение по корректируемой рамке
-                        self.bboxes_container[self.processing_box.get_class_id_str()] = self.processing_box
-                        
+                        self.bboxes_container.update_bbox(self.processing_box)
                         self.processing_box = None
                         #self.is_bboxes_changed = True
                         self.is_bboxes_dragged = True
-                        # debug
-                        #print(f'Bbox before release: {self.processing_box}; is_bbox_changed={self.is_bboxes_changed}')
-                        #print('-----------------------------------------')
             else:
                 self.is_bboxes_dragged = False
                 
@@ -559,14 +546,13 @@ class BboxFrameTracker:
             #self.is_bboxes_changed = False
             self.is_bboxes_dragged = False
     
-    def change_class_name(self, event, flags, drawing_bbox_name):
+    def change_class_name(self, event, flags, bbox):
         if event == cv2.EVENT_RBUTTONDOWN:
             if flags & cv2.EVENT_FLAG_CTRLKEY and not flags & cv2.EVENT_FLAG_ALTKEY:
-                #print(drawing_bbox_name, self.current_class_name)
                 if self.processing_box is None:
                     if self.current_class_name is not None:
                         # извлечение из словаря по заданному имени!
-                        self.processing_box = self.bboxes_container[drawing_bbox_name]
+                        self.processing_box = bbox
                         current_color = (0,255,0)
                         class_name, id = self.current_class_name.split(',')
 
@@ -574,20 +560,21 @@ class BboxFrameTracker:
                         self.processing_box.id = int(id)
                         self.processing_box.color = current_color
                         # изменение по информации извне - по заданному имени класса
-                        self.bboxes_container[self.current_class_name] = self.processing_box
+                        self.bboxes_container.update_bbox(self.processing_box)
                         # удаление рамки по заданному имени
-                        self.bboxes_container.pop(drawing_bbox_name)
+                        #self.bboxes_container.pop(bbox)
                         self.processing_box = None
                         self.is_bboxes_changed = True
         else:
             self.is_bboxes_changed = False
 
-    def delete_box(self, event, flags, bbox_name):
+    def delete_box(self, event, flags, bbox):
+        
         if event == cv2.EVENT_LBUTTONDOWN:
             if flags & cv2.EVENT_FLAG_ALTKEY and not flags & cv2.EVENT_FLAG_CTRLKEY:
                 if self.processing_box is None:
                     # удаление по заданному имени
-                    self.processing_box = self.bboxes_container.pop(bbox_name)
+                    self.processing_box = self.bboxes_container.pop(bbox)
                     
                     self.processing_box = None
                     self.is_bboxes_changed = True
@@ -601,7 +588,6 @@ class BboxFrameTracker:
         self.img = None
 
     def update_current_class_name(self, current_class_name):
-        #print(current_class_name)
         self.current_class_name = current_class_name
 
     def __call__(self, event, x, y, flags, param):
@@ -614,43 +600,42 @@ class BboxFrameTracker:
             self.delete_box_flag = False
             if self.processing_box is not None:
                 self.displayed_box = self.processing_box.coords
-                bbox_name = self.processing_box.get_class_id_str()
+                #bbox_name = self.processing_box.get_class_id_str()
                 if self.processing_box.is_corner_dragging:
-                    self.correct_rectangle(event, flags, bbox_name, x, y)
+                    self.correct_rectangle(event, flags, self.displayed_box, x, y)
                 elif self.processing_box.is_bbox_dragging:
-                    self.drag_box(event, flags, bbox_name, x, y)  
+                    self.drag_box(event, flags, self.displayed_box, x, y)  
             else:
                 # итерирование с извлечением имени и рамки
-                for bbox_name, bbox in self.bboxes_container.items():
+                for bbox in self.bboxes_container.iter_bboxes():
                     x0, y0, x1, y1 = bbox.coords
                     
                     if check_cursor_in_corner(x0,y0,x,y,6):
                         self.displayed_corner = (x0, y0)
                         self.displayed_box = None
-                        self.correct_rectangle(event, flags, bbox_name, x, y)
+                        self.correct_rectangle(event, flags, bbox, x, y)
                         break
                     elif check_cursor_in_corner(x1,y1,x,y,6):
                         self.displayed_corner = (x1, y1)
                         self.displayed_box = None
-                        self.correct_rectangle(event, flags, bbox_name, x, y)
+                        self.correct_rectangle(event, flags, bbox, x, y)
                         break
-
                     elif check_cursor_in_corner(x0,y1,x,y,6):
                         self.displayed_corner = (x0, y1)
                         self.displayed_box = None    
-                        self.correct_rectangle(event, flags, bbox_name, x, y)
+                        self.correct_rectangle(event, flags, bbox, x, y)
                         break
                     elif check_cursor_in_corner(x1,y0,x,y,6):
                         self.displayed_corner = (x1, y0)
                         self.displayed_box = None
-                        self.correct_rectangle(event, flags, bbox_name, x, y)
+                        self.correct_rectangle(event, flags, bbox, x, y)
                         break
 
                     elif check_cursor_in_bbox(x0, y0, x1, y1, x, y):
                         self.displayed_box = (x0, y0, x1, y1)
                         self.displayed_corner = None
-                        self.drag_box(event, flags, bbox_name, x, y)
-                        self.change_class_name(event, flags, bbox_name)
+                        self.drag_box(event, flags, bbox, x, y)
+                        self.change_class_name(event, flags, bbox)
                         break
                     else:
                         self.displayed_corner = None
@@ -659,13 +644,13 @@ class BboxFrameTracker:
         # При зажатом Alt мы удаляем рамку
         elif (flags & cv2.EVENT_FLAG_ALTKEY)==cv2.EVENT_FLAG_ALTKEY and not (flags & cv2.EVENT_FLAG_CTRLKEY)==cv2.EVENT_FLAG_CTRLKEY:
             # итерирование с извлечением имени и рамки
-            for bbox_name, bbox in list(self.bboxes_container.items()):
+            for bbox in list(self.bboxes_container.iter_bboxes()):
                 x0, y0, x1, y1 = bbox.coords
                 if check_cursor_in_bbox(x0, y0, x1, y1, x, y):
                     self.displayed_box = (x0, y0, x1, y1)
                     self.displayed_corner = None
                     self.delete_box_flag = True
-                    self.delete_box(event, flags, bbox_name)
+                    self.delete_box(event, flags, bbox)
                 else:
                     self.displayed_box = None
                     self.delete_box_flag = False
@@ -675,14 +660,15 @@ class BboxFrameTracker:
             # фактически, мы вызываем всегда функцию draw_one_box, а уже внутри нее обрабатываем нажатия кнопок
             self.draw_one_box(event, flags, x, y)
 
-    def update_bboxes_dict(self, new_bboxes_container):
+    def update_bboxes_container(self, new_bboxes_container):
         # обновление контейнера
         self.bboxes_container = new_bboxes_container
 
     def render_boxes(self):
         '''
         Метод для отображения рамок на экране
-        '''     
+        '''
+
         #drawing_img = self.img.copy()
         drawing_img = deepcopy(self.img)
         rows, cols, channels = drawing_img.shape
@@ -692,38 +678,27 @@ class BboxFrameTracker:
         font = ImageFont.truetype("FiraCode-SemiBold.ttf", font_size)
         # вычисляем ширину рамки. Квадратный корень почему-то работает хорошо...
         line_width = np.round(np.sqrt(font_size).astype(int))
-        #print('--------------------DEBUG--------------------')
         # итерирование по рамкам в обратном порядке (чтобы те рамки, которые были добавлены последними, рендерились поверх остальных)
-        for bbox_name, bbox in list(self.bboxes_container.items())[::-1]:
-            if bbox.is_visible:
+        for bbox in list(self.bboxes_container.iter_bboxes())[::-1]:
+            if bbox.displaying_type != 'no':
                 x0, y0, x1, y1 = bbox.coords
                 class_name = bbox.class_name
 
-                # потом надо переработать логику
-                if bbox.manual_idx is not None:
-                    sample_idx = bbox.manual_idx
-                if bbox.manual_idx is None and bbox.autogenl_idx is not None:
-                    sample_idx = bbox.autogen_idx
-                
-                if self.is_bbox_idx_displayed:
-                    displaying_name = f'{class_name},{sample_idx}'
+                if bbox.displaying_type == 'auto':
+                    color = (0, 0, 0)
+                    displaying_name = f'{class_name}(AG),{bbox.auto_idx}'
+                elif bbox.displaying_type == 'registered':
+                    color = (0, 255, 0)
+                    displaying_name = f'{class_name}(T),{bbox.registered_idx}'
                 else:
-                    displaying_name = class_name
+                    raise ValueError('Bbox.displaying_type shold be either "registered" or "auto" or "no"')
                 
-                color = bbox.color
+                #color = bbox.color
                 drawing_img = draw_bbox_with_text(drawing_img, (x0,y0,x1,y1), line_width, displaying_name, color, font)
                 # кружок, обозначающий левый верхний угол
                 #drawing_img = cv2.circle(drawing_img, (x0, y0), 6, color, -1)
                 
-                # debug
-                '''
-                print()
-                print(f'DEBUG BBOXES FLAGS FOR {bbox}')
-                print(f'is_bbox_creation = {bbox.is_bbox_creation}')
-                print(f'is_corner_dragging = {bbox.is_corner_dragging}')
-                print(f'is_bbox_dragging = {bbox.is_bbox_dragging}')
-                '''
-
+                
                 if bbox.is_bbox_creation:
                     drawing_img = cv2.circle(drawing_img, (x1, y1), 6, (0, 0, 255), -1)
                 elif bbox.is_corner_dragging:
@@ -749,4 +724,382 @@ class BboxFrameTracker:
                     
                     
         return drawing_img
+
+class BboxesContainer:
+    '''
+    ВСКРЫЛАСЬ НЕОБХОДИМОСТЬ КАК-ТО ХРАНИТЬ БД СО ВСЕМИ ЗАРЕГИСТРИРОВАННЫМИ ОБЪЕКТАМИ!!!!
+    '''
+    def __init__(self, registered_objects_db) -> None:
+        '''
+        registered_objects_db - база данных, где хранится информация об отслеживаемых объектах:
+        '''      
+        # основная таблица с рамками
+        # !!!!! не вполне понятно,зачем теперь нужно поле id, раз я решил осуществлять поиск посредством фильтрации значений полей
+        # Колонки у таблицы:
+        #   class_name - имя класса
+        #   object_description - описание объекта
+        #   auto_idx - индекс, присвоенный автоматическим трекером
+        #   registered_idx - индекс отслеживаемого объекта
+        #   bbox - сам объект рамки
+        #   is_updated - флаг, сигнализирующий о том, что рамка обновилась на очередном кадре
+        self.bboxes_df = pd.DataFrame(columns=['class_name', 'object_description', 'auto_idx', 'registered_idx', 'bbox', 'is_updated'])
+
+
+        self.registered_objects_db = registered_objects_db
+
+        # {имя класса: индекс последнего элемента для класса}
+        self.tracking_classes_counter = {}
+
+    def find_bbox(self, class_name=None, auto_idx=None, registered_idx=None, object_description=None):
+        '''
+        Поиск рамок по имени класса, автоматическому индексу, индексу, присвоенному вручную и текстовому описанию объектов
+        '''
+        filter_condition = ~self.bboxes_df['bbox'].isna()
+        
+        if class_name is not None:
+            filter_condition = filter_condition & (self.bboxes_df['class_name']==class_name)
+        if auto_idx is not None:
+            filter_condition = filter_condition & (self.bboxes_df['auto_idx']==auto_idx)
+        if registered_idx is not None:
+            filter_condition = filter_condition & (self.bboxes_df['registered_idx']==registered_idx)
+        if object_description is not None:
+            filter_condition = filter_condition & (self.bboxes_df['object_description']==object_description)
+
+        return self.bboxes_df[filter_condition]
+
+    def show_bbox_certain_type(self, showing_type):
+        '''
+        Показывает рамки определенного типа (автоматические или отслеживаемые вручную)
+        showing_type = ['auto', 'registered', 'both']
+        НЕ ДОПИСАНО!!!!111
+        '''
+        if showing_type == 'auto':
+            # как делать inplace операции с объектами, хранящимися в ячейках?
+            self.bboxes_df['bboxes'].apply(lambda x: True if showing_type=='' else x.is_visible)
+
+    def update_bbox(self, updating_bbox):
+        '''
+        Обновление рамок, включая добавление новых
+        updating_bbox - обновляемая рамка
+        updting_source - источник обновления из множества ['auto', 'registered']
+        '''
+        updating_class_name = updating_bbox.class_name
+        updating_auto_idx = updating_bbox.auto_idx
+        updating_manual_idx = updating_bbox.registered_idx
+
+        # обработка различных источников обновления 
+        if updating_auto_idx != -1:
+            # автоматически сгенерированная рамка
+            # признак рамки - то же самое имя класса и тот же самый автоматический индекс
+            # если рамка помечена 'registered', то все равно ищем по признаку автоматического индекса
+            # индекс auto затирает индекс registered 
+            filter_condition = (self.bboxes_df['class_name']==updating_class_name)\
+                & (self.bboxes_df['auto_idx']==updating_auto_idx)
+            registered_idx = -1
+        elif updating_auto_idx == -1 and updating_manual_idx == -1:
+            filter_condition = (self.bboxes_df['class_name']==updating_class_name)\
+                & (self.bboxes_df['registered_idx']==updating_manual_idx)\
+                & (self.bboxes_df['auto_idx']==updating_auto_idx)
+            registered_idx = -1 
+        else:
+            #if updating_manual_idx == -1:
+            #    raise ValueError('updating_manual_idx should not equal to -1 in a case of updating_auto_idx == -1')
+            # если у рамки нет автоматического индекса (рамка создана вручную), то тогда 
+            # мы ищем рамку по индексу registered
+            filter_condition = (self.bboxes_df['class_name']==updating_class_name)\
+                & (self.bboxes_df['registered_idx']==updating_manual_idx) 
+            registered_idx = updating_bbox.registered_idx
+        
+        filtered_bboxes_df = self.bboxes_df[filter_condition]
+        # если рамки нет БД, ее надо добавить
+        if len(filtered_bboxes_df) < 1:
+            self.bboxes_df.loc[len(self.bboxes_df)] = {
+                'class_name': updating_class_name,
+                'object_description': '',
+                'auto_idx': updating_auto_idx,
+                'registered_idx': registered_idx,
+                'bbox': updating_bbox,
+                'is_updated':True
+                }
+        # случай, если рамка есть в БД, и она единственная
+        elif len(filtered_bboxes_df) == 1:
+            # если автоматическое обновление разрешено
+            index = filtered_bboxes_df.index[0]
+            
+            found_bbox = filtered_bboxes_df.loc[index]['bbox']
+            #filtered = self.bboxes_df[filter_condition]['bbox'].iloc[0]
+            if found_bbox.tracking_type != 'no':
+                found_bbox.coords = updating_bbox.coords
+                
+                # !!!
+                #self.bboxes_df[filter_condition][index, 'is_updated'] = True
+                self.bboxes_df.loc[index, 'is_updated'] = True
+                # !!!!!
+                #self.bboxes_df[filter_condition][index, 'bbox'] = found_bbox
+                self.bboxes_df.loc[index, 'bbox'] = found_bbox
+        else:
+            error_str = f'More than one unique bboxes found in the table bboxes_df\n{filtered_bboxes_df}'
+            raise ValueError(error_str)
+
+    def get_autogenerated_bboxes(self):
+        filter_condition = self.bboxes_df['auto_idx'] != -1
+        return self.bboxes_df[filter_condition]
+        #return [bbox for bbox in self.bboxes_df[filter_condition]['bbox']]
+
+    def get_registered_bboxes(self):
+        #filter_condition = self.bboxes_df['registered_idx'] != -1
+        return self.registered_objects_db
+        #return [bbox for bbox in self.bboxes_df[filter_condition]['bbox']]
+
+    def change_tracking_type(self, bbox, new_tracking_type):
+        '''
+        Изменить тип отслеживания
+        new_tracking_type - тип трекинга объекта ['auto', 'registered']
+        '''
+        updating_class_name = bbox.class_name
+        updating_auto_idx = bbox.auto_idx
+        updating_manual_idx = bbox.registered_idx
     
+    def check_updated_bboxes(self):
+        '''
+        Проверка и сохранения только тех рамок, которые были обновлены
+        '''
+        are_updated_bboxes = self.bboxes_df['is_updated'] == True
+        are_registered_bboxes = self.bboxes_df['registered_idx'] != -1
+        registered_and_not_updated = ~are_updated_bboxes & are_registered_bboxes
+        not_registered_and_not_updated = ~are_updated_bboxes & ~are_registered_bboxes
+        for idx, row in self.bboxes_df[registered_and_not_updated].iterrows():
+            bbox = row['bbox']
+            bbox.displaying_type = 'no'
+            row['bbox'] = bbox
+        
+        dissapeared_bboxes = self.bboxes_df[not_registered_and_not_updated]
+        self.bboxes_df = self.bboxes_df[~not_registered_and_not_updated]
+        # выставляем все рамки как не обновляемые
+        self.bboxes_df = self.bboxes_df.assign(is_updated=False)
+        return dissapeared_bboxes
+    
+    def change_bboxes_displaying_type(self, displaying_type):
+        '''
+        Изменение типа отображения рамок
+        displaying_type - тип отображения ['auto', 'registered', 'full']
+            'auto' - только автоматически сгенерированные
+            'registered' - только зарегистрированные
+            'full' - полные
+        '''       
+        for i, row in self.bboxes_df.iterrows():
+            bbox = row['bbox']
+            if displaying_type == 'full':
+                if row['registered_idx'] != -1:
+                    bbox.displaying_type = 'registered'
+                    bbox.color = (0, 255, 0)
+                else:
+                    bbox.displaying_type = 'auto'
+                    bbox.color = (0, 0, 0)
+            elif displaying_type == 'auto':
+                bbox.displaying_type = 'auto'
+                bbox.color = (0, 0, 0)
+            elif displaying_type == 'registered':
+                if row['registered_idx'] != -1:
+                    bbox.displaying_type = 'registered'
+                    bbox.color = (0, 255, 0)
+                else:
+                    bbox.displaying_type = 'no'
+                    bbox.color = (0, 0, 0)
+            else:
+                raise ValueError('displaying_type should be either "auto" either "registered" or "full"')
+
+            row['bbox'] = bbox
+            
+    def pop(self, bbox):
+        '''
+        Извлечение рамки из контейнера 
+        '''
+        class_name = bbox.class_name
+        auto_idx = bbox.auto_idx
+        registered_idx = bbox.registered_idx
+
+        filter_condition = (self.bboxes_df['class_name']==class_name)\
+                & (self.bboxes_df['auto_idx']==auto_idx)\
+                & (self.bboxes_df['registered_idx']==registered_idx)
+        
+        filtered_bboxes_df = self.bboxes_df[filter_condition]
+
+        index = filtered_bboxes_df.index[0]
+        self.bboxes_df = self.bboxes_df.drop(index=index)
+        
+        return filtered_bboxes_df
+
+    def get_autobbox(self, class_name, auto_idx):
+        filter_condition = (self.bboxes_df['class_name']==class_name)\
+                & (self.bboxes_df['auto_idx']==auto_idx)
+        
+        return self.bboxes_df[filter_condition].iloc[0]
+        
+    def get_manualbbox(self, class_name, registered_idx):
+        filter_condition = (self.bboxes_df['class_name']==class_name)\
+                & (self.bboxes_df['auto_idx']==registered_idx)
+        
+        return self.bboxes_df[filter_condition].iloc[0]
+
+    def get_auto_bbox_from_registered(self, class_name, registered_idx, object_descr):
+        filter_condition = (self.bboxes_df['class_name']==class_name)\
+                & (self.bboxes_df['registered_idx']==registered_idx)\
+                & (self.bboxes_df['object_description']==object_descr)
+        print('DEBUG get_auto_bbox_from_registered')
+        print(f'class_name={class_name}; registered_idx={registered_idx}; object_descr={object_descr}')
+        #print(self.bboxes_df)
+        #print(filter_condition)
+        return self.bboxes_df[filter_condition]
+
+    def append_to_tracking_objects_db(self, class_name, object_description, path_to_db):
+        '''
+        Добавляем новый объект в базу данных отслеживаемых объектов
+        '''
+        #print('DEBUG')
+        #print(f'object_description={object_description}')
+        #for obj_descr in self.registered_objects_db['object_description']:
+        #    print(f'{obj_descr}:{obj_descr==object_description}')
+        #print(f"{object_description in self.registered_objects_db['object_description']}")
+
+        if object_description != '' and object_description in self.registered_objects_db['object_description'].values:
+            return -1
+        
+        self.registered_objects_db = self.registered_objects_db.sort_values(by=['class_name', 'object_idx']).reset_index(drop=True)
+        # выясняем индекс класса добавляемого объекта
+        
+        idx_of_appending_obj = len(self.registered_objects_db[self.registered_objects_db['class_name']==class_name])
+        appending_row = {
+            'object_idx':idx_of_appending_obj,
+            'class_name':class_name,
+            'object_description':object_description
+            }
+        # добавляем строку в таблицу
+        self.registered_objects_db.loc[len(self.registered_objects_db)] = appending_row
+
+        # сохраняем результат на диск
+        self.registered_objects_db.to_csv(path_to_db, index=False)
+
+        return 0
+
+    def delete_from_tracking_objects_db(self, class_name, object_idx, object_description, path_to_db):
+        filter_condition = (self.registered_objects_db['object_idx']==object_idx)\
+                & (self.registered_objects_db['class_name']==class_name)\
+                & (self.registered_objects_db['object_description']==object_description)
+        
+
+        index = self.registered_objects_db[filter_condition].index        
+        self.registered_objects_db = self.registered_objects_db.drop(index=index)
+
+        # сохраняем результат на диск
+        self.registered_objects_db.to_csv(path_to_db, index=False)
+
+    def find_in_tracking_objects_db(self, class_name, object_description):
+        '''
+        Поиск в БД отслеживемых объектов по имени класса и описанию объектов
+        '''
+        filter_condition = (self.registered_objects_db['class_name']==class_name)\
+                & (self.registered_objects_db['object_description']==object_description)
+        return self.registered_objects_db[filter_condition]
+
+    def get_tracking_obj_idx(self, class_name, object_description):
+        filter_condition = (self.registered_objects_db['class_name']==class_name)\
+                & (self.registered_objects_db['object_description']==object_description)
+        return self.registered_objects_db[filter_condition]['object_idx']
+
+    def assocoate_auto_bbox_with_registered_object(self, class_name, auto_idx, object_description, registered_idx):
+        '''
+        Выполняется изменение registered_idx и добавление описания объекта
+        '''
+
+        # ищем автоматически сгенерированную рамку
+        auto_bbox_filter_condition = (self.bboxes_df['class_name']==class_name)\
+                & (self.bboxes_df['auto_idx']==auto_idx)
+        filtered_df = self.bboxes_df[auto_bbox_filter_condition]
+        if len(filtered_df) > 1:
+            raise ValueError('Only bboxes with unique pair <class_name, autogenerated_idx> ought to be in self.bboxes_df')
+        elif len(filtered_df) == 0:
+            raise ValueError('Bbox did not found')
+        
+        # ищем, есть ли уже для того же самого зарегистрированного объекта автоматическая рамка
+        previous_registered_bbox_filter_condition = (self.bboxes_df['class_name']==class_name)\
+            & (self.bboxes_df['registered_idx']==registered_idx)\
+            & (self.bboxes_df['object_description']==object_description)
+        previous_registered_df = self.bboxes_df[previous_registered_bbox_filter_condition]
+        if len(previous_registered_df) != 0:
+            #print('ЗАМЕНА ИМЕЮЩЕЙСЯ РАМКИ ДО УДАЛЕНИЯ')
+            #print(self.bboxes_df)
+            index = previous_registered_df.index
+            # почему-то иначе объъект не изменяется
+            bbox = previous_registered_df['bbox'].iloc[0]
+            bbox.registered_idx = -1
+            bbox.displaying_type = 'auto'
+            bbox.color = (0, 0, 0)
+            self.bboxes_df.loc[index, 'bbox'] = bbox
+            
+            self.bboxes_df.loc[index, 'registered_idx'] = -1
+            self.bboxes_df.loc[index, 'object_description'] = ''
+            #print('ЗАМЕНА ИМЕЮЩЕЙСЯ РАМКИ ПОСЛЕ УДАЛЕНИЯ')
+            #print(self.bboxes_df)
+        
+        # 
+
+        # обновляем на актуальную информацию
+        index = filtered_df.index
+        # почему-то иначе объъект не изменяется
+        bbox = filtered_df['bbox'].iloc[0]
+        bbox.registered_idx = registered_idx
+        bbox.displaying_type = 'registered'
+        bbox.color = (0, 255, 0)
+        self.bboxes_df.loc[index, 'bbox'] = bbox
+        
+        self.bboxes_df.loc[index, 'registered_idx'] = registered_idx
+        self.bboxes_df.loc[index, 'object_description'] = object_description
+        #print('ЗАМЕНА ИМЕЮЩЕЙСЯ РАМКИ ПОСЛЕ ВСТАВКИ')
+        #print(self.bboxes_df)
+       
+    def iter_bboxes(self):
+        '''
+        реализация итерирования по рамкам
+        '''
+        for idx, row in self.bboxes_df.iterrows():
+            yield row['bbox']
+
+if __name__ == '__main__':
+    # Первая итерация новые рамки, полученные от "нейронки"
+    bbox1 = Bbox(1, 2, 3, 4, 100, 100, class_name='person', auto_idx=1, registered_idx=-1, color=(0,0,0), tracking_type='yolo')
+    bbox2 = Bbox(1, 4, 8, 8, 100, 100, class_name='person', auto_idx=2, registered_idx=-1, color=(0,0,0), tracking_type='yolo')
+    bbox3 = Bbox(6, 6, 6, 6, 100, 100, class_name='person', auto_idx=3, registered_idx=-1, color=(0,0,0), tracking_type='yolo')
+    
+    
+    # новая рамка, которая создана полностью вручную
+    #bbox5 = Bbox(7, 8, 9, 10, 100, 100, class_name='person', auto_idx=-1, registered_idx=1, color=(0,255,0), tracking_type='opencv')
+    # add
+    registered_objects_db = pd.DataFrame(columns=['object_idx', 'class_name', 'object_descr'])
+    b_c = BboxesContainer(registered_objects_db)
+    
+    b_c.update_bbox(bbox1)
+    b_c.update_bbox(bbox2)
+    b_c.update_bbox(bbox3)
+
+    dissapeared_bboxes = b_c.check_updated_bboxes()
+    print(b_c.bboxes_df)
+    print()
+    # register
+    b_c.assocoate_auto_bbox_with_registered_object(class_name='person', auto_idx=1, object_description='ПИДОРАС')
+    b_c.assocoate_auto_bbox_with_registered_object(class_name='person', auto_idx=2, object_description='ПИДОРАСИНА')
+    
+    print(b_c.bboxes_df)
+    print()
+    # новая рамка из автоматического трекера
+    bbox4 = Bbox(4, 5, 6, 7, 100, 100, class_name='person', auto_idx=1, registered_idx=-1, color=(0,255,0), tracking_type='opencv')
+    # новая рамка, которая создана полностью вручную
+    bbox5 = Bbox(7, 8, 9, 10, 100, 100, class_name='person', auto_idx=-1, registered_idx=1, color=(0,255,0), tracking_type='opencv')
+    # update 2nd time
+    b_c.update_bbox(bbox4)
+    b_c.update_bbox(bbox2)
+    b_c.update_bbox(bbox3)
+
+    dissapeared_bboxes = b_c.check_updated_bboxes()
+    print(b_c.find_bbox(class_name='person', auto_idx=1, registered_idx=1, object_description='ПИДОРАС'))
+    print()
