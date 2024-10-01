@@ -897,8 +897,12 @@ class BboxesContainer:
                     bbox.displaying_type = 'auto'
                     bbox.color = (0, 0, 0)
             elif displaying_type == 'auto':
-                bbox.displaying_type = 'auto'
-                bbox.color = (0, 0, 0)
+                if row['auto_idx'] == -1:
+                    bbox.displaying_type = 'no'
+                    bbox.color = (0, 0, 0)
+                else:
+                    bbox.displaying_type = 'auto'
+                    bbox.color = (0, 0, 0)
             elif displaying_type == 'registered':
                 if row['registered_idx'] != -1:
                     bbox.displaying_type = 'registered'
@@ -918,6 +922,11 @@ class BboxesContainer:
         class_name = bbox.class_name
         auto_idx = bbox.auto_idx
         registered_idx = bbox.registered_idx
+
+        print('\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
+        print('DEBUG BBoxesContainer.pop')
+        print(f'class_name={class_name}; auto_idx={auto_idx}; registered_idx={registered_idx}')
+        print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n')
 
         filter_condition = (self.bboxes_df['class_name']==class_name)\
                 & (self.bboxes_df['auto_idx']==auto_idx)\
@@ -946,10 +955,9 @@ class BboxesContainer:
         filter_condition = (self.bboxes_df['class_name']==class_name)\
                 & (self.bboxes_df['registered_idx']==registered_idx)\
                 & (self.bboxes_df['object_description']==object_descr)
-        print('DEBUG get_auto_bbox_from_registered')
-        print(f'class_name={class_name}; registered_idx={registered_idx}; object_descr={object_descr}')
-        #print(self.bboxes_df)
-        #print(filter_condition)
+        #print('DEBUG get_auto_bbox_from_registered')
+        #print(f'class_name={class_name}; registered_idx={registered_idx}; object_descr={object_descr}')
+        
         return self.bboxes_df[filter_condition]
 
     def append_to_tracking_objects_db(self, class_name, object_description, path_to_db):
@@ -1012,6 +1020,13 @@ class BboxesContainer:
         Выполняется изменение registered_idx и добавление описания объекта
         '''
 
+        '''
+        print('DEBUG assocoate_auto_bbox_with_registered_object, bboxes_df before update:')
+        print(f'class_name={class_name},auto_idx={auto_idx},object_description={object_description},registered_idx={registered_idx}')
+        print(self.bboxes_df)
+        print()
+        '''
+
         # ищем автоматически сгенерированную рамку
         auto_bbox_filter_condition = (self.bboxes_df['class_name']==class_name)\
                 & (self.bboxes_df['auto_idx']==auto_idx)
@@ -1042,8 +1057,6 @@ class BboxesContainer:
             #print('ЗАМЕНА ИМЕЮЩЕЙСЯ РАМКИ ПОСЛЕ УДАЛЕНИЯ')
             #print(self.bboxes_df)
         
-        # 
-
         # обновляем на актуальную информацию
         index = filtered_df.index
         # почему-то иначе объъект не изменяется
@@ -1055,8 +1068,13 @@ class BboxesContainer:
         
         self.bboxes_df.loc[index, 'registered_idx'] = registered_idx
         self.bboxes_df.loc[index, 'object_description'] = object_description
-        #print('ЗАМЕНА ИМЕЮЩЕЙСЯ РАМКИ ПОСЛЕ ВСТАВКИ')
-        #print(self.bboxes_df)
+
+    def unassocoate_auto_bbox_with_registered_object(self, class_name, auto_idx, object_description, registered_idx):
+        '''
+        Удаляется описание объекта и registered_idx делается равным -1
+        '''
+        pass
+
        
     def iter_bboxes(self):
         '''
