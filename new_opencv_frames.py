@@ -923,10 +923,10 @@ class BboxesContainer:
         auto_idx = bbox.auto_idx
         registered_idx = bbox.registered_idx
 
-        print('\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
-        print('DEBUG BBoxesContainer.pop')
-        print(f'class_name={class_name}; auto_idx={auto_idx}; registered_idx={registered_idx}')
-        print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n')
+        #print('\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
+        #print('DEBUG BBoxesContainer.pop')
+        #print(f'class_name={class_name}; auto_idx={auto_idx}; registered_idx={registered_idx}')
+        #print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n')
 
         filter_condition = (self.bboxes_df['class_name']==class_name)\
                 & (self.bboxes_df['auto_idx']==auto_idx)\
@@ -1015,17 +1015,15 @@ class BboxesContainer:
                 & (self.registered_objects_db['object_description']==object_description)
         return self.registered_objects_db[filter_condition]['object_idx']
 
-    def assocoate_auto_bbox_with_registered_object(self, class_name, auto_idx, object_description, registered_idx):
+    def assocoate_bbox_with_registered_object(self, class_name, auto_idx, object_description, registered_idx):
         '''
         Выполняется изменение registered_idx и добавление описания объекта
         '''
 
-        '''
-        print('DEBUG assocoate_auto_bbox_with_registered_object, bboxes_df before update:')
-        print(f'class_name={class_name},auto_idx={auto_idx},object_description={object_description},registered_idx={registered_idx}')
-        print(self.bboxes_df)
-        print()
-        '''
+        #print('DEBUG BboxContainer.assocoate_bbox_with_registered_object, bboxes_df before update:')
+        #print(f'class_name={class_name},auto_idx={auto_idx},object_description={object_description},registered_idx={registered_idx}')
+        #print(self.bboxes_df)
+        #print()   
 
         # ищем автоматически сгенерированную рамку
         auto_bbox_filter_condition = (self.bboxes_df['class_name']==class_name)\
@@ -1036,16 +1034,23 @@ class BboxesContainer:
         elif len(filtered_df) == 0:
             raise ValueError('Bbox did not found')
         
-        # ищем, есть ли уже для того же самого зарегистрированного объекта автоматическая рамка
+        # ищем, есть ли уже в таблице зарегистрированный объект по имени класса, зарегистрированному индексу и описанию объекта
         previous_registered_bbox_filter_condition = (self.bboxes_df['class_name']==class_name)\
             & (self.bboxes_df['registered_idx']==registered_idx)\
             & (self.bboxes_df['object_description']==object_description)
         previous_registered_df = self.bboxes_df[previous_registered_bbox_filter_condition]
+        
+        #print('DEBUG BboxContainer.assocoate_bbox_with_registered_object; found manual_bbox')
+        #print(previous_registered_df)
+        #print()
+
         if len(previous_registered_df) != 0:
             #print('ЗАМЕНА ИМЕЮЩЕЙСЯ РАМКИ ДО УДАЛЕНИЯ')
             #print(self.bboxes_df)
+            
+            # 
             index = previous_registered_df.index
-            # почему-то иначе объъект не изменяется
+            # почему-то иначе объект не изменяется
             bbox = previous_registered_df['bbox'].iloc[0]
             bbox.registered_idx = -1
             bbox.displaying_type = 'auto'
@@ -1069,7 +1074,7 @@ class BboxesContainer:
         self.bboxes_df.loc[index, 'registered_idx'] = registered_idx
         self.bboxes_df.loc[index, 'object_description'] = object_description
 
-    def unassocoate_auto_bbox_with_registered_object(self, class_name, auto_idx, object_description, registered_idx):
+    def unassocoate_bbox_with_registered_object(self, class_name, auto_idx, object_description, registered_idx):
         '''
         Удаляется описание объекта и registered_idx делается равным -1
         '''
@@ -1104,8 +1109,8 @@ if __name__ == '__main__':
     print(b_c.bboxes_df)
     print()
     # register
-    b_c.assocoate_auto_bbox_with_registered_object(class_name='person', auto_idx=1, object_description='ПИДОРАС')
-    b_c.assocoate_auto_bbox_with_registered_object(class_name='person', auto_idx=2, object_description='ПИДОРАСИНА')
+    b_c.assocoate_bbox_with_registered_object(class_name='person', auto_idx=1, object_description='ПИДОРАС')
+    b_c.assocoate_bbox_with_registered_object(class_name='person', auto_idx=2, object_description='ПИДОРАСИНА')
     
     print(b_c.bboxes_df)
     print()

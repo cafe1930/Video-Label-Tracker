@@ -402,7 +402,7 @@ class AssociateRegisteredAndAutoBboxesDialog(QDialog):
         self.setMinimumWidth(250)
 
         # показвтели, которые мы меняем
-        self.current_auto_bbox_name = '---'
+        self.current_class_name = '---'
         self.current_auto_idx = -1
         self.current_registered_class_name = '---'
         self.current_registered_idx = -1
@@ -460,7 +460,7 @@ class AssociateRegisteredAndAutoBboxesDialog(QDialog):
         self.setLayout(main_layout)
 
     def exit_without_save(self):
-        self.current_auto_bbox_name = '---'
+        self.current_class_name = '---'
         self.current_auto_idx = -1
         self.current_registered_class_name = '---'
         self.current_registered_idx = -1
@@ -474,7 +474,7 @@ class AssociateRegisteredAndAutoBboxesDialog(QDialog):
         if self.current_registered_class_name == '---':
             show_info_message_box('Нет изменений', 'Не выбрана автоматически сгенерированная рамка', QMessageBox.Ok, QMessageBox.Critical)
             return
-        if self.current_auto_bbox_name == '---':
+        if self.current_class_name == '---':
             show_info_message_box('Нет изменений', 'Не выбран зарегистрированный объект', QMessageBox.Ok, QMessageBox.Critical)
             return
         
@@ -491,10 +491,10 @@ class AssociateRegisteredAndAutoBboxesDialog(QDialog):
 
     def auto_bboxes_combobox_value_changed(self, value):
         if value == '---':
-            self.current_auto_bbox_name = '---'
+            self.current_class_name = '---'
             self.current_auto_idx = -1
         else:
-            self.current_auto_bbox_name, self.current_auto_idx  = value.split('(AG),')
+            self.current_class_name, self.current_auto_idx  = value.split('(AG),')
             self.current_auto_idx = int(self.current_auto_idx)
 
 
@@ -1018,18 +1018,27 @@ class TrackerWindow(QMainWindow):
         )
         associate_auto_bboxes_dialog.exec()
 
-        current_auto_bbox_name = associate_auto_bboxes_dialog.current_auto_bbox_name
+        current_class_name = associate_auto_bboxes_dialog.current_class_name
         current_auto_idx = associate_auto_bboxes_dialog.current_auto_idx
         current_registered_class_name = associate_auto_bboxes_dialog.current_registered_class_name
         current_registered_idx = associate_auto_bboxes_dialog.current_registered_idx
         current_registered_object_descr = associate_auto_bboxes_dialog.current_registered_object_descr
 
-        if current_auto_bbox_name == '---' or current_registered_object_descr == '---':
+        if current_class_name == '---' or current_registered_object_descr == '---':
             return
+        
+        # Ищем рамку того же самого зарегистрированного объекта, если он есть в таблице
+        existent_bbox = self.frame_with_boxes.bboxes_container.find_bbox(class_name=current_class_name, registered_idx=current_registered_idx, object_description=current_registered_object_descr)
+        #print('DEBUG label_new_bbox; find existent bbox')
+        #print(existent_bbox)
+        if len(existent_bbox) == 1:
+            existent_bbox = existent_bbox['bbox'].values[0]
+            self.frame_with_boxes.bboxes_container.pop(existent_bbox)
+
 
         path_to_db = glob.glob(os.path.join(f"{self.settings_dict['last_opened_folder']}", "*.csv"))[0]
-        self.frame_with_boxes.bboxes_container.assocoate_auto_bbox_with_registered_object(
-            class_name=current_auto_bbox_name,
+        self.frame_with_boxes.bboxes_container.assocoate_bbox_with_registered_object(
+            class_name=current_class_name,
             auto_idx=current_auto_idx,
             object_description=current_registered_object_descr,
             registered_idx=current_registered_idx
@@ -1392,17 +1401,22 @@ class TrackerWindow(QMainWindow):
         self.imshow_thread.new_bbox_create_signal.connect(self.label_new_bbox)
 
     def label_new_bbox(self):
+        '''
+        Метод, выполняющий обработку сигнала о создании рамки вручную
+        '''
         self.is_autoplay = False
         # ищем вновь созданную рамку по имени класса ('?'), автоматическому индексу (-1) и "ручному" индексу (-1)
         manually_created_bbox_df = self.frame_with_boxes.bboxes_container.find_bbox(class_name='?', auto_idx=-1, registered_idx=-1)        
         manually_created_bbox = manually_created_bbox_df['bbox'].values[0]
-        print('DEBUG label_new_bbox; manual bbox:')
-        print(manually_created_bbox)
+        
+        #print('DEBUG label_new_bbox; manual bbox:')
+        #print(manually_created_bbox)
         
         # вызываем новое диалоговое окно, чтобы выбрать имя класса для рамки        
         label_new_bbox_dialog = LabelNewBoxDialog(
             registered_objects_container=self.frame_with_boxes.bboxes_container)
         label_new_bbox_dialog.exec()
+        
         current_class_name = label_new_bbox_dialog.current_class_name
         current_object_descr = label_new_bbox_dialog.current_object_descr
         current_registered_idx = label_new_bbox_dialog.current_registered_idx
@@ -1411,6 +1425,7 @@ class TrackerWindow(QMainWindow):
         print(f'current_class_name: {current_class_name}; current_object_descr: {current_object_descr}; current_registered_idx: {current_registered_idx}')
         print('----------------------------------------')
 
+        # удаляем вновь созданную рамку с именем класса "?" и индексами объектов, равными -1
         self.frame_with_boxes.bboxes_container.pop(manually_created_bbox)
         print('DEBUG label_new_bbox; bboxes_container after pop manually_created_bbox:')
         print(self.frame_with_boxes.bboxes_container.bboxes_df)
@@ -1422,23 +1437,35 @@ class TrackerWindow(QMainWindow):
         manually_created_bbox.color = (0, 255, 0)
 
         # Ищем рамку того же самого зарегистрированного объекта, если он есть в таблице
-        existent_bbox = self.frame_with_boxes.bboxes_container.find_bbox(class_name=current_class_name, registered_idx=current_registered_idx, object_description=current_object_descr)
-        #print('DEBUG label_new_bbox; find existent bbox')
-        #print(existent_bbox)
-        if len(existent_bbox) == 1:
-            existent_bbox = existent_bbox['bbox'].values[0]
-            self.frame_with_boxes.bboxes_container.pop(existent_bbox)
+        existent_registered_bbox = self.frame_with_boxes.bboxes_container.find_bbox(class_name=current_class_name, registered_idx=current_registered_idx, object_description=current_object_descr)
+        print('DEBUG label_new_bbox; find existent bbox')
+        print(f'current_class_name={current_class_name};current_registered_idx={current_registered_idx},current_object_descr={current_object_descr}')
+        print('Existent bbox:')
+        print(existent_registered_bbox)
+        if len(existent_registered_bbox) == 1:
+            existent_registered_bbox = existent_registered_bbox['bbox'].values[0]
+            self.frame_with_boxes.bboxes_container.pop(existent_registered_bbox)
+            print('After pop of existent_registered_bbox')
+            print(self.frame_with_boxes.bboxes_container.bboxes_df)
+            print()
+            if existent_registered_bbox.auto_idx != -1:
+                print('AAAAA')
+                existent_registered_bbox.registered_idx = -1
+                existent_registered_bbox.displaying_type = 'auto'
+                existent_registered_bbox.color = (0, 0, 0)
+                self.frame_with_boxes.bboxes_container.update_bbox(existent_registered_bbox)
 
-        print('\nDEBUG label_new_bbox; after pop existent bbox')
+        print('\nDEBUG label_new_bbox; after update existent bbox')
         print(self.frame_with_boxes.bboxes_container.bboxes_df)
         print()
         
+        # добавляем созданную вручную рамку
         self.frame_with_boxes.bboxes_container.update_bbox(manually_created_bbox)
         print('DEBUG label_new_bbox; after update manually_created_bbox')
         print(self.frame_with_boxes.bboxes_container.bboxes_df)
+        #print(f'DESCR OF UPD OBJ:{current_object_descr}')
 
-        print(f'DESCR OF UPD OBJ:{current_object_descr}')
-        self.frame_with_boxes.bboxes_container.assocoate_auto_bbox_with_registered_object(
+        self.frame_with_boxes.bboxes_container.assocoate_bbox_with_registered_object(
             class_name=current_class_name,
             auto_idx=manually_created_bbox.auto_idx,
             object_description=current_object_descr,
