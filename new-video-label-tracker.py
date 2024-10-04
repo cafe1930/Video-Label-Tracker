@@ -1420,6 +1420,7 @@ class TrackerWindow(QMainWindow):
         current_class_name = label_new_bbox_dialog.current_class_name
         current_object_descr = label_new_bbox_dialog.current_object_descr
         current_registered_idx = label_new_bbox_dialog.current_registered_idx
+        
         print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++')
         print('DEBUG label_new_bbox; params from QDialog window')
         print(f'current_class_name: {current_class_name}; current_object_descr: {current_object_descr}; current_registered_idx: {current_registered_idx}')
@@ -1436,6 +1437,7 @@ class TrackerWindow(QMainWindow):
         manually_created_bbox.registered_idx = current_registered_idx
         manually_created_bbox.color = (0, 255, 0)
 
+        '''
         # Ищем рамку того же самого зарегистрированного объекта, если он есть в таблице
         existent_registered_bbox = self.frame_with_boxes.bboxes_container.find_bbox(class_name=current_class_name, registered_idx=current_registered_idx, object_description=current_object_descr)
         print('DEBUG label_new_bbox; find existent bbox')
@@ -1449,15 +1451,18 @@ class TrackerWindow(QMainWindow):
             print(self.frame_with_boxes.bboxes_container.bboxes_df)
             print()
             if existent_registered_bbox.auto_idx != -1:
-                print('AAAAA')
+                print('ACHTUNG! ACHTUNG!')
+                print('DEBUG label_new_bbox "if existent_registered_bbox.auto_idx != -1"')
                 existent_registered_bbox.registered_idx = -1
                 existent_registered_bbox.displaying_type = 'auto'
                 existent_registered_bbox.color = (0, 0, 0)
                 self.frame_with_boxes.bboxes_container.update_bbox(existent_registered_bbox)
+                print('-----------------------------------')
 
         print('\nDEBUG label_new_bbox; after update existent bbox')
         print(self.frame_with_boxes.bboxes_container.bboxes_df)
         print()
+        '''
         
         # добавляем созданную вручную рамку
         self.frame_with_boxes.bboxes_container.update_bbox(manually_created_bbox)
@@ -2021,7 +2026,9 @@ class TrackerWindow(QMainWindow):
                     verbose=True
                     )
             except:
-                pass
+                yolo_predicted_bboxes_container = self.frame_with_boxes.bboxes_container
+            
+            
             
             # обновляем зарегистрированные, отслеживаемые и совместно отслеживаемые и сгенерированные рамки          
             #self.registered_bboxes_dict, self.tracking_bboxes_dict, self.tracked_and_raw_bboxes_dict \
@@ -2114,6 +2121,7 @@ class Yolov8Tracker:
                 class_name=class_name,
                 auto_idx=id,
                 registered_idx=-1,
+                object_description='',
                 color=color,
                 displaying_type='auto',
                 tracking_type='yolo'

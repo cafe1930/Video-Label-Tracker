@@ -163,6 +163,7 @@ class Bbox:
             class_name,
             auto_idx,
             registered_idx,
+            object_description,
             color,
             displaying_type='auto',
             tracking_type='no'):
@@ -188,6 +189,8 @@ class Bbox:
         self.registered_idx = registered_idx
         # цвет рамки
         self.color = color
+        # описание объекта
+        self.object_description = object_description
 
         # координаты начального угла рамки
         self.ix = None
@@ -426,8 +429,9 @@ class BboxFrameTracker:
                 auto_idx = -1
                 registered_idx = -1
                 current_class_name = '?'
+                object_description = '',
                 self.processing_box = Bbox(
-                    x, y, x, y, rows, cols, current_class_name, auto_idx, registered_idx, color)
+                    x, y, x, y, rows, cols, current_class_name, auto_idx, registered_idx, object_description, color)
                 self.processing_box.create_bbox(x, y)
                 # изменение по корректируемой рамке
                 self.bboxes_container.update_bbox(self.processing_box)
@@ -777,69 +781,118 @@ class BboxesContainer:
             # как делать inplace операции с объектами, хранящимися в ячейках?
             self.bboxes_df['bboxes'].apply(lambda x: True if showing_type=='' else x.is_visible)
 
+    def add_new_bbox_to_table(self, updating_bbox):
+        self.bboxes_df.loc[len(self.bboxes_df)] = {
+                    'class_name': updating_bbox.class_name,
+                    'object_description': updating_bbox.object_description,
+                    'auto_idx': updating_bbox.auto_idx,
+                    'registered_idx': updating_bbox.registered_idx,
+                    'bbox': updating_bbox,
+                    'is_updated':True
+                    }
+    
+    def update_existing_bbox_coords(self, index, updating_bbox):
+        #found_bbox = filtered_bboxes_df.loc[index]['bbox']
+        found_bbox = self.bboxes_df.loc[index]['bbox']
+        #if found_bbox.tracking_type != 'no':
+        found_bbox.coords = updating_bbox.coords
+        #self.bboxes_df[filter_condition][index, 'is_updated'] = True
+        self.bboxes_df.loc[index, 'is_updated'] = True
+        self.bboxes_df.loc[index, 'bbox'] = found_bbox
+    
+    def unregister_bbox(self, index, registered_autobbox):
+        registered_autobbox.object_description = ''
+        registered_autobbox.color = (0, 0, 0)
+        registered_autobbox.registered_idx = -1
+
+        self.bboxes_df.loc[index]['is_updated'] = True
+        self.bboxes_df.loc[index]['registered_idx'] = -1
+        self.bboxes_df.loc[index]['object_description'] = ''
+        self.bboxes_df.loc[index]['bbox'] = registered_autobbox
+
+    def update_same_bbox(self, updating_bbox):
+        '''
+        Поиск и обновление той же самой рамки
+        '''
+        updating_class_name = updating_bbox.class_name
+        updating_auto_idx = updating_bbox.auto_idx
+        updating_registered_idx = updating_bbox.registered_idx
+
+        filter_condition = (self.bboxes_df['class_name']==updating_class_name)\
+            & (self.bboxes_df['auto_idx']==updating_auto_idx)\
+            & (self.bboxes_df['registered_idx']==updating_registered_idx)
+        # ищем рамку в таблице
+        filtered_bboxes_df = self.bboxes_df[filter_condition]
+        if len(filtered_bboxes_df) < 1:
+            # если рамка не найдена, добавляем ее в таблицу
+            self.add_new_bbox_to_table(updating_bbox)
+        # если рамка есть в БД, и она единственная, обновляем координаты
+        elif len(filtered_bboxes_df) == 1:
+            index = filtered_bboxes_df.index[0]
+            self.update_existing_bbox_coords(index, updating_bbox)
+        else:
+            error_str = f'More than one unique bboxes found in the table bboxes_df\n{filtered_bboxes_df}'
+            raise ValueError(error_str)
+
     def update_bbox(self, updating_bbox):
         '''
         Обновление рамок, включая добавление новых
         updating_bbox - обновляемая рамка
-        updting_source - источник обновления из множества ['auto', 'registered']
         '''
         updating_class_name = updating_bbox.class_name
         updating_auto_idx = updating_bbox.auto_idx
-        updating_manual_idx = updating_bbox.registered_idx
+        updating_registered_idx = updating_bbox.registered_idx
+        print('------------------------------------')
+        print('DEBUG in BBoxContainer.update_bbox')
+        print(f'updating_class_name={updating_class_name}; updating_auto_idx={updating_auto_idx}; updating_registered_idx={updating_registered_idx}')
 
         # обработка различных источников обновления 
-        if updating_auto_idx != -1:
-            # автоматически сгенерированная рамка
-            # признак рамки - то же самое имя класса и тот же самый автоматический индекс
-            # если рамка помечена 'registered', то все равно ищем по признаку автоматического индекса
-            # индекс auto затирает индекс registered 
-            filter_condition = (self.bboxes_df['class_name']==updating_class_name)\
-                & (self.bboxes_df['auto_idx']==updating_auto_idx)
-            registered_idx = -1
-        elif updating_auto_idx == -1 and updating_manual_idx == -1:
-            filter_condition = (self.bboxes_df['class_name']==updating_class_name)\
-                & (self.bboxes_df['registered_idx']==updating_manual_idx)\
-                & (self.bboxes_df['auto_idx']==updating_auto_idx)
-            registered_idx = -1 
-        else:
-            #if updating_manual_idx == -1:
-            #    raise ValueError('updating_manual_idx should not equal to -1 in a case of updating_auto_idx == -1')
-            # если у рамки нет автоматического индекса (рамка создана вручную), то тогда 
-            # мы ищем рамку по индексу registered
-            filter_condition = (self.bboxes_df['class_name']==updating_class_name)\
-                & (self.bboxes_df['registered_idx']==updating_manual_idx) 
-            registered_idx = updating_bbox.registered_idx
-        
-        filtered_bboxes_df = self.bboxes_df[filter_condition]
-        # если рамки нет БД, ее надо добавить
-        if len(filtered_bboxes_df) < 1:
-            self.bboxes_df.loc[len(self.bboxes_df)] = {
-                'class_name': updating_class_name,
-                'object_description': '',
-                'auto_idx': updating_auto_idx,
-                'registered_idx': registered_idx,
-                'bbox': updating_bbox,
-                'is_updated':True
-                }
-        # случай, если рамка есть в БД, и она единственная
-        elif len(filtered_bboxes_df) == 1:
-            # если автоматическое обновление разрешено
-            index = filtered_bboxes_df.index[0]
+        #
+        if updating_auto_idx == -1 and updating_registered_idx == -1:
+            # если рамка создана вручную и не отслеживается (случай рисования рамок вручную)
+            #
+            # ищем и обновляем только ту же самую рамку
+            self.update_same_bbox(updating_bbox)
             
-            found_bbox = filtered_bboxes_df.loc[index]['bbox']
-            #filtered = self.bboxes_df[filter_condition]['bbox'].iloc[0]
-            if found_bbox.tracking_type != 'no':
-                found_bbox.coords = updating_bbox.coords
-                
-                # !!!
-                #self.bboxes_df[filter_condition][index, 'is_updated'] = True
-                self.bboxes_df.loc[index, 'is_updated'] = True
-                # !!!!!
-                #self.bboxes_df[filter_condition][index, 'bbox'] = found_bbox
-                self.bboxes_df.loc[index, 'bbox'] = found_bbox
-        else:
-            error_str = f'More than one unique bboxes found in the table bboxes_df\n{filtered_bboxes_df}'
-            raise ValueError(error_str)
+        elif updating_auto_idx == -1 and updating_registered_idx != -1:
+            # если рамка создана вручную и отслеживается
+            # (случай, дополнительного трекинга и/или сохранения координат рамки для созданных вручную рамок)
+
+            # Сначала ищем рамку, зарегистрированную автоматическую рамку и снимаем регистрацию
+            registered_autobbox_filter_condition = (self.bboxes_df['class_name']==updating_class_name)\
+                & (self.bboxes_df['auto_idx']!=-1)\
+                & (self.bboxes_df['registered_idx']==updating_registered_idx)
+            
+            registered_autobbox_df = self.bboxes_df[registered_autobbox_filter_condition]
+            # если найдена автоматическая рамка, которая уже отслеживается, снимаем с нее статус отслеживаемой
+            if len(registered_autobbox_df) == 1:
+                index = registered_autobbox_df.index[0]
+                registered_autobbox = registered_autobbox_df.loc[index]['bbox']
+                self.unregister_bbox(index, registered_autobbox)
+
+            # после этого ищем ту же самую рамку manual_created+tracked
+            self.update_same_bbox(updating_bbox)
+            
+        elif updating_auto_idx != -1 and updating_registered_idx == -1:
+            # если рамка создана автоматически и не отслеживается
+            
+            # Сначала ищем, есть уже ли в таблице зарегистрированнаая рамка
+            registered_autobbox_filter_condition = (self.bboxes_df['class_name']==updating_class_name)\
+                & (self.bboxes_df['auto_idx']==updating_auto_idx)\
+                & (self.bboxes_df['registered_idx']!=-1)
+            
+            registered_autobbox_df = self.bboxes_df[registered_autobbox_filter_condition]
+            # если найдена отслеживаемая рамка, то делаем updating_bbox отслеживаемой
+            if len(registered_autobbox_df) == 1:
+                registered_bbox = registered_autobbox_df['bbox'].values[0]
+                updating_bbox.object_description = registered_bbox.object_description
+                updating_bbox.registered_idx = registered_bbox.registered_idx
+            # обновляем рамку
+            self.update_same_bbox(updating_bbox)
+        elif updating_auto_idx != -1 and updating_registered_idx != -1:
+            # если рамка создана автоматически и отслеживается, то обновляем только ее координаты
+            self.update_same_bbox(updating_bbox) #????
+
 
     def get_autogenerated_bboxes(self):
         filter_condition = self.bboxes_df['auto_idx'] != -1
@@ -858,7 +911,7 @@ class BboxesContainer:
         '''
         updating_class_name = bbox.class_name
         updating_auto_idx = bbox.auto_idx
-        updating_manual_idx = bbox.registered_idx
+        updating_registered_idx = bbox.registered_idx
     
     def check_updated_bboxes(self):
         '''
@@ -922,15 +975,17 @@ class BboxesContainer:
         class_name = bbox.class_name
         auto_idx = bbox.auto_idx
         registered_idx = bbox.registered_idx
+        object_description = bbox.object_description
 
-        #print('\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
+        
         #print('DEBUG BBoxesContainer.pop')
         #print(f'class_name={class_name}; auto_idx={auto_idx}; registered_idx={registered_idx}')
-        #print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n')
+        
 
         filter_condition = (self.bboxes_df['class_name']==class_name)\
                 & (self.bboxes_df['auto_idx']==auto_idx)\
-                & (self.bboxes_df['registered_idx']==registered_idx)
+                & (self.bboxes_df['registered_idx']==registered_idx)\
+                & (self.bboxes_df['object_description']==object_description)
         
         filtered_bboxes_df = self.bboxes_df[filter_condition]
 
@@ -1054,6 +1109,7 @@ class BboxesContainer:
             bbox = previous_registered_df['bbox'].iloc[0]
             bbox.registered_idx = -1
             bbox.displaying_type = 'auto'
+            bbox.object_description = ''
             bbox.color = (0, 0, 0)
             self.bboxes_df.loc[index, 'bbox'] = bbox
             
@@ -1069,6 +1125,7 @@ class BboxesContainer:
         bbox.registered_idx = registered_idx
         bbox.displaying_type = 'registered'
         bbox.color = (0, 255, 0)
+        bbox.object_description = object_description
         self.bboxes_df.loc[index, 'bbox'] = bbox
         
         self.bboxes_df.loc[index, 'registered_idx'] = registered_idx
@@ -1085,14 +1142,16 @@ class BboxesContainer:
         '''
         реализация итерирования по рамкам
         '''
-        for idx, row in self.bboxes_df.iterrows():
+        # рамки д.б. отсортированы в убывающем порядке, чтобы рамки с registered_idx=-1 были внизу
+        # М.б. надо переместить сортировку в какое-то другое место
+        for idx, row in self.bboxes_df.sort_values(by='registered_idx', ascending=False).iterrows():
             yield row['bbox']
 
 if __name__ == '__main__':
     # Первая итерация новые рамки, полученные от "нейронки"
-    bbox1 = Bbox(1, 2, 3, 4, 100, 100, class_name='person', auto_idx=1, registered_idx=-1, color=(0,0,0), tracking_type='yolo')
-    bbox2 = Bbox(1, 4, 8, 8, 100, 100, class_name='person', auto_idx=2, registered_idx=-1, color=(0,0,0), tracking_type='yolo')
-    bbox3 = Bbox(6, 6, 6, 6, 100, 100, class_name='person', auto_idx=3, registered_idx=-1, color=(0,0,0), tracking_type='yolo')
+    bbox1 = Bbox(1, 2, 3, 4, 100, 100, class_name='person', auto_idx=1, registered_idx=-1, color=(0,0,0), object_description='', tracking_type='yolo')
+    bbox2 = Bbox(1, 4, 8, 8, 100, 100, class_name='person', auto_idx=2, registered_idx=-1, color=(0,0,0), object_description='', tracking_type='yolo')
+    bbox3 = Bbox(6, 6, 6, 6, 100, 100, class_name='person', auto_idx=3, registered_idx=-1, color=(0,0,0), object_description='', tracking_type='yolo')
     
     
     # новая рамка, которая создана полностью вручную
@@ -1115,9 +1174,9 @@ if __name__ == '__main__':
     print(b_c.bboxes_df)
     print()
     # новая рамка из автоматического трекера
-    bbox4 = Bbox(4, 5, 6, 7, 100, 100, class_name='person', auto_idx=1, registered_idx=-1, color=(0,255,0), tracking_type='opencv')
+    bbox4 = Bbox(4, 5, 6, 7, 100, 100, class_name='person', auto_idx=1, registered_idx=-1, object_description='', color=(0,255,0), tracking_type='opencv')
     # новая рамка, которая создана полностью вручную
-    bbox5 = Bbox(7, 8, 9, 10, 100, 100, class_name='person', auto_idx=-1, registered_idx=1, color=(0,255,0), tracking_type='opencv')
+    bbox5 = Bbox(7, 8, 9, 10, 100, 100, class_name='person', auto_idx=-1, registered_idx=1, object_description='', color=(0,255,0), tracking_type='opencv')
     # update 2nd time
     b_c.update_bbox(bbox4)
     b_c.update_bbox(bbox2)
