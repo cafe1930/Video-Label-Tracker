@@ -12,9 +12,9 @@ import json
 
 import time
 
-from opencv_frames import BboxFrame, Bbox, BboxFrameTracker, compute_iou
+from new_opencv_frames import BboxFrame, Bbox, BboxFrameTracker, compute_iou
 
-from video_label_tracker import ImshowThread, SetFrameIdxDialog
+from new_video_label_tracker import ImshowThread, SetFrameIdxDialog
 
 class LabelViewerWindow(QMainWindow):
     def __init__(self, screen_width, screen_height):
@@ -57,16 +57,6 @@ class LabelViewerWindow(QMainWindow):
 
         self.class_names_list = self.settings_dict['classes']
         
-        #self.classes_combobox = QComboBox(self)
-        
-        #self.classes_combobox.addItems(self.class_names_list)
-
-        # список отображаемых рамок
-        self.visible_classes_list_widget = QListWidget()
-
-        self.visible_classes_list_widget.setSelectionMode(QAbstractItemView.MultiSelection)
-
-        
         self.frame_display = QLCDNumber()
         go_to_frame_button = QPushButton('Go to Frame')
 
@@ -82,9 +72,6 @@ class LabelViewerWindow(QMainWindow):
         next_frame_button.clicked.connect(self.next_frame_button_handling)
         previous_frame_button.clicked.connect(self.previous_frame_button_handling)
         self.autosave_current_checkbox.stateChanged.connect(self.autosave_current_checkbox_slot)
-
-        self.visible_classes_list_widget.itemClicked.connect(self.update_visible_boxes_on_click_slot)
-        self.visible_classes_list_widget.itemEntered.connect(self.update_visible_boxes_on_selection_slot)
 
         show_all_button.clicked.connect(self.show_all_button_slot)
         hide_all_button.clicked.connect(self.hide_all_button_slot)
@@ -252,62 +239,6 @@ class LabelViewerWindow(QMainWindow):
         self.imshow_thread = ImshowThread()
         self.imshow_thread.bboxes_update_signal.connect(self.update_visible_classes_list)
 
-
-    def update_visible_boxes_on_click_slot(self, item):
-        '''
-        Обновление видимых рамок в кадре. Контролируется посредством visible_classes_list_widget.
-        Если элемент выделен, то он отображается в кадре.
-        '''
-        bbox_name = item.data(0)
-        #class_name, bbox_idx = class_str.split(',')
-        #print('UPDATE VISIBLE BOXES ON CLICK')
-        #print(f'CLASS STR {bbox_name}')
-        #bbox_idx = int(bbox_idx)
-        if bbox_name in self.frame_with_boxes.bboxes_dict:
-            self.frame_with_boxes.bboxes_dict[bbox_name].is_visible = item.isSelected()
-            
-            '''
-            if self.frame_with_boxes is not None:
-                for bbox_name, bbox in self.frame_with_boxes.bboxes_dict.items():
-                    bbox_class_name = bbox.class_name
-                    sample_idx = bbox.id 
-                    if bbox_class_name == bbox_name and bbox_idx == sample_idx:
-                        bbox.is_visible = item.isSelected()
-            '''
-
-        if item.isSelected():
-            self.update_current_box_class_name(bbox_name)
-        self.update_visible_classes_list()
-
-    
-    def update_visible_boxes_on_selection_slot(self, item):
-        '''
-        Обновление видимых рамок в кадре. Контролируется посредством visible_classes_list_widget.
-        Если элемент выделен, то он отображается в кадре.
-        '''
-        bbox_name = item.data(0)
-        #class_name, bbox_idx = class_str.split(',')
-        #print('UPDATE VISIBLE BOXES ON CLICK')
-        #print(f'CLASS STR {bbox_name}')
-        #bbox_idx = int(bbox_idx)
-        if bbox_name in self.frame_with_boxes.bboxes_dict:
-            self.frame_with_boxes.bboxes_dict[bbox_name].is_visible = item.isSelected()
-
-            self.update_visible_classes_list()
-        '''
-        class_str = item.data(0)
-        class_name, bbox_idx = class_str.split(',')
-        bbox_idx = int(bbox_idx)
-        if self.frame_with_boxes is not None:
-            for bbox_name, bbox in self.frame_with_boxes.bboxes_dict.items():
-                bbox_class_name = bbox.class_name 
-                sample_idx = bbox.id
-                if bbox_class_name == class_name and bbox_idx == sample_idx:
-                    bbox.is_visible = item.isSelected()
-        '''
-        return
-
-
     def load_labels_from_file(self):
         '''
         Загружаем из txt-файлов координаты рамок и информацию о классах. 
@@ -320,14 +251,11 @@ class LabelViewerWindow(QMainWindow):
             with open(path_to_to_loading_labels, 'r', encoding='utf-8') as fd:
                 bboxes_dict = json.load(fd)
 
-            new_bboxes_dict = {}
+            #new_bboxes_dict = {}
             for bbox_name, (x0,y0,x1,y1) in bboxes_dict.items():
                 class_name,id = bbox_name.split(',')
-                new_bboxes_dict[bbox_name] = Bbox(x0, y0, x1, y1, self.img_rows, self.img_cols, class_name, (0,255,0), id, True)
-
-            self.frame_with_boxes.bboxes_dict = new_bboxes_dict
-            
-            
+                bbox = Bbox(x0, y0, x1, y1, self.img_rows, self.img_cols, class_name, -1, int(id), '', (0,255,0), 'registered')
+                self.frame_with_boxes.bboxes_container.update_bbox(bbox)
     
     def update_visible_classes_list(self):
         '''
@@ -589,12 +517,7 @@ class LabelViewerWindow(QMainWindow):
         self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_idx)
 
         ret, frame = self.video_capture.read()
-        '''# Масштабирование кадра
-        if self.img_cols / self.screen_width > 0.65 or self.img_rows / self.screen_height > 0.65:
-            scaling_factor = 0.65*self.screen_width/self.img_cols
-            new_size = tuple(map(lambda x: int(scaling_factor*x), (self.img_cols, self.img_rows)))
-            frame = cv2.resize(frame, new_size)
-        '''
+        
         if ret:
             # обновляем кадр в потоке, отображающем кадр
             self.frame_with_boxes.update_img(frame)
