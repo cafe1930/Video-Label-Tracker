@@ -9,7 +9,6 @@ import os
 import glob
 import json
 
-
 import time
 
 from opencv_frames import BboxFrame, Bbox, BboxFrameTracker, compute_iou
