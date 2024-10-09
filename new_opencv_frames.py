@@ -169,7 +169,8 @@ class Bbox:
             registered_idx,
             object_description,
             color,
-            displaying_type='auto'):
+            displaying_type='auto',
+            tracker_type='auto'):
 
         '''
         Класс, описывающий поведение одной локализационной рамки
@@ -179,6 +180,10 @@ class Bbox:
         color - цвет рамки
         sample_idx - индекс или номер рамки одного и того же класса для отслеживания ситуаций, когда на изображении много объектов одного и того же класса 
         displaying_type - отображаемый тип данных: ['auto', 'registered', 'no']
+        tracker_type - тип трекинга из множества: ['auto', 'alternative', 'no']
+            'auto' - автоматический трекер (YOLO)
+            'alternative' - альтернативный трекер из набора OpenCV
+            'no' - запрет изменения координат
         '''
 
         # координаты левого верхнего и правого нижнего углов рамки
@@ -215,15 +220,14 @@ class Bbox:
         self.img_rows = img_rows
         self.img_cols = img_cols
 
-        # флаг для отображения и для трекинга
+        # тип отображения
         self.displaying_type = displaying_type
 
-        
-    def __hash__(self):
-        '''
-        Для применения в словарях и множествах
-        '''
-        return hash((self.coords, self.class_name, self.id))
+        # тип трекинга. неодходимо для записи в лог
+        self.tracker_type = tracker_type
+    
+    def update_tracker_type(self, new_tracker_type):
+        self.tracker_type = new_tracker_type
     
     def update_color(self, color):
         self.color = color
@@ -370,7 +374,7 @@ class Bbox:
     def __repr__(self) -> str:
         class_name = self.class_name
         #id = self.id
-        repr_str = f'{class_name},auto_idx:{self.auto_idx},registered_idx:{self.registered_idx}: {self.coords}, displaying_type={self.displaying_type}'
+        repr_str = f'TR:{self.tracker_type};{self.coords};Class:{class_name};auto_idx:{self.auto_idx};registered_idx:{self.registered_idx};displaying_type:{self.displaying_type};tracker_type:{self.tracker_type}'
         return repr_str
 
 class BboxFrameTracker:
@@ -435,7 +439,10 @@ class BboxFrameTracker:
                 current_class_name = '?'
                 object_description = '',
                 self.processing_box = Bbox(
-                    x, y, x, y, rows, cols, current_class_name, auto_idx, registered_idx, object_description, color)
+                    x, y, x, y,
+                    rows, cols, current_class_name, auto_idx,
+                    registered_idx, object_description,
+                    color, displaying_type='auto', tracker_type='alternative')
                 self.processing_box.create_bbox(x, y)
                 # изменение по корректируемой рамке
                 self.bboxes_container.update_bbox(self.processing_box)
@@ -504,11 +511,11 @@ class BboxFrameTracker:
                     self.processing_box.stop_corner_drag()
                     # изменение по корректируемой рамке
                     self.bboxes_container.update_bbox(self.processing_box)
-                    self.processing_box = None
-                    self.is_bboxes_changed = True
-
                     # сохраняем рамку после коррекции (надо для логгирования)
                     self.bbox_after_correction = deepcopy(self.processing_box)
+                    
+                    self.processing_box = None
+                    self.is_bboxes_changed = True
         else:
             if self.processing_box is not None:
                 self.processing_box.make_x0y0_lesser_x1y1()
@@ -552,11 +559,10 @@ class BboxFrameTracker:
 
                         # изменение по корректируемой рамке
                         self.bboxes_container.update_bbox(self.processing_box)
-                        self.processing_box = None
-                        self.is_bboxes_dragged = True
-                        
                         # сохраняем рамку после коррекции (надо для логгирования)
                         self.bbox_after_correction = deepcopy(self.processing_box)
+                        self.processing_box = None
+                        self.is_bboxes_dragged = True   
             else:
                 self.is_bboxes_dragged = False
         else:
@@ -750,58 +756,92 @@ class BboxesContainer:
         #   bbox - сам объект рамки
         #   is_updated - флаг, сигнализирующий о том, что рамка обновилась на очередном кадре
         self.bboxes_df = pd.DataFrame(columns=['class_name', 'object_description', 'auto_idx', 'registered_idx', 'bbox', 'is_updated'])
-
-
         self.registered_objects_db = registered_objects_db
+
+    def change_all_bboxes_alternative_tracker_type(self, new_tracker_type):
+        # ищем все рамки, которые отслеживаются альтернативным трекером, включая те, 
+        # для которых запрещено менять координаты
+        alternative_tracked_bboxes_df = self.get_all_alternative_tracked_registered_bboxes()
+        for _, row in alternative_tracked_bboxes_df.iterrows():
+            bbox = row['bbox']
+            bbox.update_tracker_type(new_tracker_type)
+            row['bbox'] = bbox
+
+    def change_bbox_tracker_type(self, bbox, new_tracker_type):
+        '''
+        Изменение типа трекера. Необходимо для логгирования
+        '''
+
+        # сначала ищем конкретную рамку
+        found_bboxes_df = self.find_bbox_by_attributes(
+            class_name=bbox.class_name,
+            auto_idx=bbox.auto_idx,
+            registered_idx=bbox.registered_idx
+            )
+        if len(found_bboxes_df) == 1:
+            # если рамка найдена, то изменяем тип трекера
+            bbox.update_tracker_type(new_tracker_type)
+            self.update_bbox(bbox)
 
     def reset_tracking_objects_table(self):
         self.bboxes_df = pd.DataFrame(columns=['class_name', 'object_description', 'auto_idx', 'registered_idx', 'bbox', 'is_updated'])
 
-    def find_nearest_bbox(self, bbox, tracking_type):
+    #def get_
+
+    def find_nearest_iou_bbox(self, bbox, tracking_type):
         '''
         Ищем ближайшую рамку по метрике IoU
-        tracking_type - тип отслеживаемого объекта ['all', 'auto', 'registered']
+        tracking_type - тип отслеживаемого объекта ['all', 'auto', 'alternative', 'no']
         '''
         
         class_name = bbox.class_name
         auto_idx = bbox.auto_idx
         registered_idx = bbox.registered_idx
 
-        
-
-
         class_filter = (self.bboxes_df['class_name'] == class_name)
         if tracking_type == 'all':
             filter_condition = class_filter
         elif tracking_type == 'auto':
             filter_condition = class_filter & (self.bboxes_df['auto_idx'] != -1)
-        elif tracking_type == 'registered':
+        elif tracking_type == 'alternative':
             filter_condition = class_filter & (self.bboxes_df['registered_idx'] != -1)
+        elif tracking_type == 'no':
+            # пока что так...
+            filter_condition = class_filter & (self.bboxes_df['bbox'].apply(lambda bbox: bbox.tracker_type=='no',))
 
         filtered_df = self.bboxes_df[filter_condition]
-        print(filtered_df)
+        #print('FULL DF:')
+        #print(self.bboxes_df)
+        #print()
+
+        #print('FILTERED DF')
+        #print(filtered_df)
+        #print()
         # ищем в таблице саму рамку, чтобы не сравнивать ее с самой собой
-        found_bbox_df = self.find_bbox(class_name=class_name, auto_idx=auto_idx, registered_idx=registered_idx)
+        found_bbox_df = self.find_bbox_by_attributes(class_name=class_name, auto_idx=auto_idx, registered_idx=registered_idx)
+        #print('FOUND BBOX DF')
+        #print(found_bbox_df)
         if len(found_bbox_df) != 0:
             for idx in found_bbox_df.index:
-                filtered_df = filtered_df.drop(index=idx)
+                if idx in filtered_df.index:
+                    filtered_df = filtered_df.drop(index=idx)
         
         iou_array = filtered_df['bbox'].apply(lambda x:compute_iou(x.coords, bbox.coords))
         
         nearest_iou = iou_array.max()
         nearest_idx = filtered_df.index[iou_array.argmax()]
 
-        print(filtered_df)
-        print(iou_array)
-        print(nearest_idx)
+        #print(filtered_df)
+        #print(iou_array)
+        #print(nearest_idx)
         
         if nearest_iou < 0.1:
             return {'nearest_bbox_iou':nearest_iou, 'nearest_bbox': None}
         return {'nearest_bbox_iou':nearest_iou, 'nearest_bbox': filtered_df.loc[nearest_idx, 'bbox']}
 
-    def find_bbox(self, class_name=None, auto_idx=None, registered_idx=None, object_description=None):
+    def find_bbox_by_attributes(self, class_name=None, auto_idx=None, registered_idx=None, object_description=None):
         '''
-        Поиск рамок по имени класса, автоматическому индексу, индексу, присвоенному вручную и текстовому описанию объектов
+        Поиск рамок по атрибутам: имени класса, автоматическому индексу, индексу, присвоенному вручную и текстовому описанию объектов
         '''
         filter_condition = ~self.bboxes_df['bbox'].isna()
         
@@ -851,16 +891,39 @@ class BboxesContainer:
             row['registered_idx'] = -1
             row['object_description'] = ''
             row['bbox'] = bbox
+
+    def unregister_bbox(self, bbox):
+        '''
+        Ищем конкретную рамку и снимаем у нее регистрацию
+        '''
+        #print('DEBUG BboxesContainer.unregister_bbox before pop bbox')
+        #print(bbox)
+        #print(self.bboxes_df)
+        #print()
+        self.pop(bbox)
+        #print('DEBUG BboxesContainer.unregister_bbox after pop bbox')
+        #print(self.bboxes_df)
+        bbox.registered_idx = -1
+        bbox.object_description = ''
+        bbox.color = (0, 0, 0)
+        bbox.displaying_type = 'auto'
+        self.update_bbox(bbox)
+        #print('DEBUG BboxesContainer.unregister_bbox after update bbox')
+        #print(self.bboxes_df)
+
+        
     
     def unregister_bbox_by_table_index(self, index, registered_autobbox):
         registered_autobbox.object_description = ''
         registered_autobbox.color = (0, 0, 0)
         registered_autobbox.registered_idx = -1
+        registered_autobbox.displaying_type = 'auto'
+        #registered_autobbox.tracker_type = 'auto'
 
-        self.bboxes_df.loc[index]['is_updated'] = True
-        self.bboxes_df.loc[index]['registered_idx'] = -1
-        self.bboxes_df.loc[index]['object_description'] = ''
-        self.bboxes_df.loc[index]['bbox'] = registered_autobbox
+        self.bboxes_df.loc[index, 'is_updated'] = True
+        self.bboxes_df.loc[index, 'registered_idx'] = -1
+        self.bboxes_df.loc[index, 'object_description'] = ''
+        self.bboxes_df.loc[index, 'bbox'] = registered_autobbox
 
     def update_same_bbox(self, updating_bbox):
         '''
@@ -877,11 +940,9 @@ class BboxesContainer:
         filtered_bboxes_df = self.bboxes_df[filter_condition]
         if len(filtered_bboxes_df) < 1:
             # если рамка не найдена, добавляем ее в таблицу
-            
             self.add_new_bbox_to_table(updating_bbox)
         # если рамка есть в БД, и она единственная, обновляем координаты
         elif len(filtered_bboxes_df) == 1:
-            #debug_str += f'Correct bbox coords:\n{updating_bbox}\n'
             index = filtered_bboxes_df.index[0]
             self.update_existing_bbox_coords(index, updating_bbox)
         else:
@@ -904,7 +965,6 @@ class BboxesContainer:
             #
             # ищем и обновляем только ту же самую рамку
             self.update_same_bbox(updating_bbox)
-            
         elif updating_auto_idx == -1 and updating_registered_idx != -1:
             # если рамка создана вручную и отслеживается
             # (случай, дополнительного трекинга и/или сохранения координат рамки для созданных вручную рамок)
@@ -1029,11 +1089,15 @@ class BboxesContainer:
         
         return filtered_bboxes_df
         
-    def get_all_additionaly_tracked_registered_bboxes(self):
-        additionaly_tracked_and_registered_filter_condition = (self.bboxes_df['registered_idx']!=-1)\
+    def get_all_alternative_tracked_registered_bboxes(self):
+        '''
+        Поиск всех объектов, отслеживаемых альтернативным трекером, включая те, координаты которых не меняются
+        '''
+        # признак объектов, отслеживаемых альтернативным трекером, - объект зарегистрирован (registered_idx != 1) И автоматичекая рамка отсутствует (auto_idx == -1)
+        alternative_tracked_and_registered_filter_condition = (self.bboxes_df['registered_idx']!=-1)\
                 & (self.bboxes_df['auto_idx']==-1)
         
-        return self.bboxes_df[additionaly_tracked_and_registered_filter_condition]
+        return self.bboxes_df[alternative_tracked_and_registered_filter_condition]
 
     def get_auto_bbox_from_registered(self, class_name, registered_idx, object_descr):
         filter_condition = (self.bboxes_df['class_name']==class_name)\
@@ -1120,6 +1184,8 @@ class BboxesContainer:
             bbox.displaying_type = 'auto'
             bbox.object_description = ''
             bbox.color = (0, 0, 0)
+            bbox.tracker_type = 'auto'
+
             self.bboxes_df.loc[index, 'bbox'] = bbox
             
             self.bboxes_df.loc[index, 'registered_idx'] = -1
@@ -1133,16 +1199,11 @@ class BboxesContainer:
         bbox.displaying_type = 'registered'
         bbox.color = (0, 255, 0)
         bbox.object_description = object_description
+        bbox.tracker_type = 'auto'
         self.bboxes_df.loc[index, 'bbox'] = bbox
         
         self.bboxes_df.loc[index, 'registered_idx'] = registered_idx
         self.bboxes_df.loc[index, 'object_description'] = object_description
-
-    def unassocoate_bbox_with_registered_object(self, class_name, auto_idx, object_description, registered_idx):
-        '''
-        Удаляется описание объекта и registered_idx делается равным -1
-        '''
-        pass
        
     def iter_bboxes(self):
         '''
@@ -1153,11 +1214,18 @@ class BboxesContainer:
         for idx, row in self.bboxes_df.sort_values(by='registered_idx', ascending=False).iterrows():
             yield row['bbox']
 
+    def __repr__(self):
+        return f'{self.bboxes_df}'
+        
+    def __len__(self):
+        return len(self.bboxes_df)
+
 if __name__ == '__main__':
     # Первая итерация новые рамки, полученные от "нейронки"
     bbox1 = Bbox(1, 2, 3, 4, 100, 100, class_name='person', auto_idx=1, registered_idx=-1, color=(0,0,0), object_description='')
     bbox2 = Bbox(1, 4, 8, 8, 100, 100, class_name='person', auto_idx=2, registered_idx=-1, color=(0,0,0), object_description='')
     bbox3 = Bbox(1, 4, 6, 6, 100, 100, class_name='person', auto_idx=3, registered_idx=-1, color=(0,0,0), object_description='')
+    bbox4 = Bbox(1, 4, 6, 6, 100, 100, class_name='person', auto_idx=4, registered_idx=-1, color=(0,0,0), object_description='', tracker_type='no')
     
     
     # новая рамка, которая создана полностью вручную
@@ -1169,12 +1237,18 @@ if __name__ == '__main__':
     bboxes_container.update_bbox(bbox1)
     bboxes_container.update_bbox(bbox2)
     bboxes_container.update_bbox(bbox3)
+    bboxes_container.update_bbox(bbox4)
 
-    #bboxes_container.find_nearest_bbox(bbox2)
+    bboxes_container.change_bbox_tracker_type(bbox1, new_tracker_type='no')
+    #for _, row in bboxes_container.bboxes_df.iterrows():
+    #    bbox = row['bbox']
+    #    print(bbox)
 
-    nearest = bboxes_container.find_nearest_bbox(bbox2, tracking_type='all')
+    nearest_dict = bboxes_container.find_nearest_iou_bbox(bbox3, tracking_type='no')
 
-    print(nearest)
+    print(bboxes_container)
+    print(bbox3)
+    print(nearest_dict)
     #print(bboxes_container.bboxes_df)
 
     exit()
@@ -1198,5 +1272,5 @@ if __name__ == '__main__':
     bboxes_container.update_bbox(bbox3)
 
     dissapeared_bboxes = bboxes_container.check_updated_bboxes()
-    print(bboxes_container.find_bbox(class_name='person', auto_idx=1, registered_idx=1, object_description='ПИДОРАС'))
+    print(bboxes_container.find_bbox_by_attributes(class_name='person', auto_idx=1, registered_idx=1, object_description='ПИДОРАС'))
     print()
