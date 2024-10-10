@@ -810,17 +810,10 @@ class BboxesContainer:
             filter_condition = class_filter & (self.bboxes_df['bbox'].apply(lambda bbox: bbox.tracker_type=='no',))
 
         filtered_df = self.bboxes_df[filter_condition]
-        #print('FULL DF:')
-        #print(self.bboxes_df)
-        #print()
-
-        #print('FILTERED DF')
-        #print(filtered_df)
-        #print()
+        
         # ищем в таблице саму рамку, чтобы не сравнивать ее с самой собой
         found_bbox_df = self.find_bbox_by_attributes(class_name=class_name, auto_idx=auto_idx, registered_idx=registered_idx)
-        #print('FOUND BBOX DF')
-        #print(found_bbox_df)
+        
         if len(found_bbox_df) != 0:
             for idx in found_bbox_df.index:
                 if idx in filtered_df.index:
@@ -830,16 +823,12 @@ class BboxesContainer:
         
         nearest_iou = iou_array.max()
         nearest_idx = filtered_df.index[iou_array.argmax()]
-
-        #print(filtered_df)
-        #print(iou_array)
-        #print(nearest_idx)
         
         if nearest_iou < 0.1:
             return {'nearest_bbox_iou':nearest_iou, 'nearest_bbox': None}
         return {'nearest_bbox_iou':nearest_iou, 'nearest_bbox': filtered_df.loc[nearest_idx, 'bbox']}
 
-    def find_bbox_by_attributes(self, class_name=None, auto_idx=None, registered_idx=None, object_description=None):
+    def find_bbox_by_attributes(self, class_name=None, auto_idx=None, registered_idx=None, object_description=None, tracker_type=None):
         '''
         Поиск рамок по атрибутам: имени класса, автоматическому индексу, индексу, присвоенному вручную и текстовому описанию объектов
         '''
@@ -853,6 +842,8 @@ class BboxesContainer:
             filter_condition = filter_condition & (self.bboxes_df['registered_idx']==registered_idx)
         if object_description is not None:
             filter_condition = filter_condition & (self.bboxes_df['object_description']==object_description)
+        if tracker_type is not None:
+            filter_condition = filter_condition & (self.bboxes_df['bbox'].apply(lambda bbox: bbox.tracker_type==tracker_type))
 
         return self.bboxes_df[filter_condition]
 
@@ -896,22 +887,14 @@ class BboxesContainer:
         '''
         Ищем конкретную рамку и снимаем у нее регистрацию
         '''
-        #print('DEBUG BboxesContainer.unregister_bbox before pop bbox')
-        #print(bbox)
-        #print(self.bboxes_df)
-        #print()
+        
         self.pop(bbox)
-        #print('DEBUG BboxesContainer.unregister_bbox after pop bbox')
-        #print(self.bboxes_df)
+        
         bbox.registered_idx = -1
         bbox.object_description = ''
         bbox.color = (0, 0, 0)
         bbox.displaying_type = 'auto'
-        self.update_bbox(bbox)
-        #print('DEBUG BboxesContainer.unregister_bbox after update bbox')
-        #print(self.bboxes_df)
-
-        
+        self.update_bbox(bbox)      
     
     def unregister_bbox_by_table_index(self, index, registered_autobbox):
         registered_autobbox.object_description = ''
@@ -1240,16 +1223,14 @@ if __name__ == '__main__':
     bboxes_container.update_bbox(bbox4)
 
     bboxes_container.change_bbox_tracker_type(bbox1, new_tracker_type='no')
-    #for _, row in bboxes_container.bboxes_df.iterrows():
-    #    bbox = row['bbox']
-    #    print(bbox)
+
 
     nearest_dict = bboxes_container.find_nearest_iou_bbox(bbox3, tracking_type='no')
 
     print(bboxes_container)
     print(bbox3)
     print(nearest_dict)
-    #print(bboxes_container.bboxes_df)
+    
 
     exit()
 
@@ -1257,8 +1238,8 @@ if __name__ == '__main__':
     print(bboxes_container.bboxes_df)
     print()
     # register
-    bboxes_container.assocoate_bbox_with_registered_object(class_name='person', auto_idx=1, object_description='ПИДОРАС')
-    bboxes_container.assocoate_bbox_with_registered_object(class_name='person', auto_idx=2, object_description='ПИДОРАСИНА')
+    bboxes_container.assocoate_bbox_with_registered_object(class_name='person', auto_idx=1, object_description='человек 1')
+    bboxes_container.assocoate_bbox_with_registered_object(class_name='person', auto_idx=2, object_description='человек 2')
     
     print(bboxes_container.bboxes_df)
     print()
@@ -1272,5 +1253,5 @@ if __name__ == '__main__':
     bboxes_container.update_bbox(bbox3)
 
     dissapeared_bboxes = bboxes_container.check_updated_bboxes()
-    print(bboxes_container.find_bbox_by_attributes(class_name='person', auto_idx=1, registered_idx=1, object_description='ПИДОРАС'))
+    print(bboxes_container.find_bbox_by_attributes(class_name='person', auto_idx=1, registered_idx=1, object_description='человек 2'))
     print()

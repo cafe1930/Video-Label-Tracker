@@ -26,7 +26,7 @@ from new_opencv_frames import BboxFrameTracker, Bbox, BboxesContainer, process_b
 
 from ultralytics import YOLO
 
-def show_info_message_box(window_title, info_text, buttons, icon_type):
+def show_info_message_box(window_title, info_text, buttons, icon_type, position='standard'):
     '''
     Обертка для вызова диалоговых окон
     '''
@@ -35,31 +35,14 @@ def show_info_message_box(window_title, info_text, buttons, icon_type):
     msg_box.setWindowTitle(window_title)
     msg_box.setText(info_text)
     msg_box.setStandardButtons(buttons)
+    if position != 'standard':
+        if isinstance(position, (tuple, list)):
+            x = position[0]
+            y = position[1]
+            msg_box.move(x, y)
+
     return msg_box.exec()
 
-class One2OneMapping:
-    '''
-    Реализация однозначных отображений. Нужен для работы рамок
-    '''
-    def __init__(self, mapping={}):
-        self.inverse_mapping_dict = {v: k for k, v in mapping.items()}
-        self.forward_mapping_dict = {v: k for k, v in self.inverse_mapping_dict.items()}
-        
-
-    def forward_mapping(self, key):
-        return self.forward_mapping_dict[key]
-    
-    def inverse_mapping(self, key):
-        return self.inverse_mapping_dict[key]
-    
-    def update(self, forward_mapping_dict):
-        inverse_mapping_dict = {v: k for k, v in forward_mapping_dict.items()}
-        self.inverse_mapping_dict.update(inverse_mapping_dict)
-        self.forward_mapping_dict = {v: k for k, v in self.inverse_mapping_dict.items()}
-        self.inverse_mapping_dict = {v: k for k, v in self.forward_mapping_dict.items()}
-    
-    def __repr__(self):
-        return f'forward map: {self.forward_mapping_dict}, inverse map: {self.inverse_mapping_dict}'
 
 class LabelNewBoxDialog(QDialog):
     def __init__(self, registered_objects_container):
@@ -520,31 +503,190 @@ class SetFrameIdxDialog(QDialog):
             self.text_line.setText('')
             return
 
+class ApproveNearestBBoxDialog(QDialog):
+    show_registered_bboxes_signal = pyqtSignal()
+    show_auto_bboxes_signal = pyqtSignal()
+    show_all_bboxes_signal = pyqtSignal()
+    def __init__(self, title, msg_str):
+        super().__init__()
+        self.setWindowTitle(title)
 
-class SelectModelDialog(QDialog):
-    def __init__(self, models_names_list):
+        self.msg_label = QLabel(text=msg_str)
+
+        show_auto_bboxes_button = QPushButton('Показать только автоматически сгенерированные рамки')
+        show_tracked_button = QPushButton('Показать только отслеживаемые рамки')
+        show_all_button = QPushButton('Показать отслеживаемые и сгенерированные рамки')
+
+        #self.is_approved = False
+        # какую рамку выбираем
+        self.bbox_choise = 'no'
+
+        self.save_and_exit_button = QPushButton('Подтвердить')
+        self.choose_bbox_manually = QPushButton('Выбрать др. рамку')
+        self.exit_without_save_button = QPushButton('Отклонить')
+
+        show_auto_bboxes_button.clicked.connect(self.show_auto_bboxes_button_handling)
+        show_tracked_button.clicked.connect(self.show_tracked_button_handling)
+        show_all_button.clicked.connect(self.show_all_button_handling)
+
+        self.save_and_exit_button.clicked.connect(self.save_and_exit)
+        self.exit_without_save_button.clicked.connect(self.exit_without_save)
+        self.choose_bbox_manually.clicked.connect(self.choose_manually_handling)
+        
+        #functional_layout = QVBoxLayout()
+        #functional_layout.addWidget(QMessageBox.Information)
+        #functional_layout.addWidget(self.msg_label)
+        #functional_layout.addWidget(show_auto_bboxes_button)
+        #functional_layout.addWidget(show_tracked_button)
+        #functional_layout.addWidget(show_all_button)
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(self.save_and_exit_button)
+        buttons_layout.addWidget(self.choose_bbox_manually)
+        buttons_layout.addWidget(self.exit_without_save_button)
+        
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(self.msg_label)
+        main_layout.addLayout(buttons_layout)
+        main_layout.addWidget(QLabel())
+
+        main_layout.addWidget(show_auto_bboxes_button)
+        main_layout.addWidget(show_tracked_button)
+        main_layout.addWidget(show_all_button)
+
+        self.setLayout(main_layout)
+
+    def show_auto_bboxes_button_handling(self):
+        self.show_auto_bboxes_signal.emit()
+    
+    def show_tracked_button_handling(self):
+        self.show_registered_bboxes_signal.emit()
+
+    def show_all_button_handling(self):
+        self.show_all_bboxes_signal.emit()
+
+    def save_and_exit(self):
+        #self.is_approved = True
+        self.bbox_choise = 'yes'
+        self.close()
+        #return True
+
+    def choose_manually_handling(self):
+        self.bbox_choise = 'manual'
+        self.close()
+
+    def exit_without_save(self):
+        #self.is_approved = False
+        self.bbox_choise = 'no'
+        self.close()
+        #return False
+
+class SelectIoUBboxesDialog(QDialog):
+    show_registered_bboxes_signal = pyqtSignal()
+    show_auto_bboxes_signal = pyqtSignal()
+    show_all_bboxes_signal = pyqtSignal()
+    def __init__(self, title, bboxes_list):
+        super().__init__()
+        self.setWindowTitle(title)
+
+        self.combobox = QComboBox()
+        self.combobox.addItems(['---']+bboxes_list)
+        self.combobox.activated[str].connect(self.select_bbox)
+        self.current_item = '---'
+
+        show_auto_bboxes_button = QPushButton('Показать только автоматически сгенерированные рамки')
+        show_tracked_button = QPushButton('Показать только отслеживаемые рамки')
+        show_all_button = QPushButton('Показать отслеживаемые и сгенерированные рамки')
+
+        self.save_and_exit_button = QPushButton('Сохранить и выйти')
+        self.exit_without_save_button = QPushButton('Выйти без сохранения')
+
+        show_auto_bboxes_button.clicked.connect(self.show_auto_bboxes_button_handling)
+        show_tracked_button.clicked.connect(self.show_tracked_button_handling)
+        show_all_button.clicked.connect(self.show_all_button_handling)
+
+        self.save_and_exit_button.clicked.connect(self.save_and_exit)
+        self.exit_without_save_button.clicked.connect(self.exit_without_save)
+        
+        functional_layout = QVBoxLayout()
+        functional_layout.addWidget(self.combobox)
+        functional_layout.addWidget(show_auto_bboxes_button)
+        functional_layout.addWidget(show_tracked_button)
+        functional_layout.addWidget(show_all_button)
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(self.save_and_exit_button)
+        buttons_layout.addWidget(self.exit_without_save_button)
+        
+        main_layout = QVBoxLayout()
+        main_layout.addLayout(functional_layout)
+        main_layout.addWidget(QLabel())
+        main_layout.addLayout(buttons_layout)
+        
+        self.setLayout(main_layout)
+
+    def show_auto_bboxes_button_handling(self):
+        self.show_auto_bboxes_signal.emit()
+    
+    def show_tracked_button_handling(self):
+        self.show_registered_bboxes_signal.emit()
+
+    def show_all_button_handling(self):
+        self.show_all_bboxes_signal.emit()
+    
+    def select_bbox(self, val):
+        self.current_item = val
+
+    def save_and_exit(self):
+        self.close()
+
+    def exit_without_save(self):
+        self.current_item = '---'
+        self.close()
+
+class SelectFromListDialog(QDialog):
+    def __init__(self, models_names_list, title):
         '''
         Диалоговое окно для выбора модели детектора/доп. трекера
         '''
         super().__init__()
+
+        self.setWindowTitle(title)
         
         self.combobox = QComboBox()
-        self.combobox.addItems(models_names_list)
-        self.combobox.activated[str].connect(self.select_detector)
-        self.current_model = models_names_list[0]#'yolov8x' if torch.cuda.is_available() else 'yolov8s'
+        self.combobox.addItems(['---']+models_names_list)
+        self.combobox.activated[str].connect(self.select_model)
+        #self.current_item = models_names_list[0]#'yolov8x' if torch.cuda.is_available() else 'yolov8s'
+        self.current_item = '---'
 
-        self.buttons = QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel)
+        self.save_and_exit_button = QPushButton('Сохранить и выйти')
+        self.exit_without_save_button = QPushButton('Выйти без сохранения')
+        self.save_and_exit_button.clicked.connect(self.save_and_exit)
+        self.exit_without_save_button.clicked.connect(self.exit_without_save)
 
-        self.buttons.accepted.connect(self.accept)
-        self.buttons.rejected.connect(self.reject)
+        #self.buttons = QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel)
+
+        #self.buttons.accepted.connect(self.accept)
+        #self.buttons.rejected.connect(self.reject)
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(self.save_and_exit_button)
+        buttons_layout.addWidget(self.exit_without_save_button)
 
         self.main_layout = QVBoxLayout()
         self.main_layout.addWidget(self.combobox)
-        self.main_layout.addWidget(self.buttons)
+        self.main_layout.addLayout(buttons_layout)
         self.setLayout(self.main_layout)
 
-    def select_detector(self, val):
-        self.current_model = val
+    def select_model(self, val):
+        self.current_item = val
+
+    def save_and_exit(self):
+        self.close()
+
+    def exit_without_save(self):
+        self.current_item = '---'
+        self.close()
 
 class AddTrackingObjectDialog(QDialog):
     def __init__(self, available_classes_list):
@@ -600,7 +742,13 @@ class TrackerWindow(QMainWindow):
         # т.к. обнулять параметры надо в нескольких местах, эта процедура обернуты в один метод
         self.set_all_params_to_default()
 
-        self.detectors_names_list = ['yolov8n', 'yolov8s', 'yolov8m', 'yolov8l', 'yolov8x']      
+        # чтение списка классов из json
+        with open('settings.json', 'r', encoding='utf-8') as fd:
+            self.settings_dict = json.load(fd)
+
+
+        #self.detectors_names_list = ["yolov8n", "yolov8s", "yolov8m", "yolov8l", "yolov8x"]
+        self.detectors_names_list = self.settings_dict['detector_models']
         self.tracker_type = self.detectors_names_list[-1] if torch.cuda.is_available() else self.detectors_names_list[-4]
         self.tracker = YoloTracker(model_type=self.tracker_type)
 
@@ -660,9 +808,7 @@ class TrackerWindow(QMainWindow):
         self.classes_with_description_table.setColumnWidth(2, 170)
         self.classes_with_description_table.setEditTriggers(QTableWidget.NoEditTriggers)
         
-        # чтение списка классов из json
-        with open('settings.json', 'r', encoding='utf-8') as fd:
-            self.settings_dict = json.load(fd)
+        
 
         self.current_detector_label = QLabel(text=f'Текущий НС детектор: {self.tracker_type.split(".")[0]}')
         self.current_alternative_tracker_label = QLabel(text=f'Текущий доп. трэкер: {self.alternative_tracker_type}')
@@ -764,6 +910,17 @@ class TrackerWindow(QMainWindow):
         self.setup_imshow_thread()
         self.show()
 
+        # DEBUG
+        '''
+        position = (int(self.screen_width*0.7), int(self.screen_height*0.7))
+        ret = show_info_message_box(
+            window_title='POSITION DEBUG',
+            info_text=f'POSITION IS {position}',
+            buttons=QMessageBox.Ok,
+            icon_type=QMessageBox.Information,
+            position=position)
+        '''
+
     def set_tracking_params_to_default(self):
         self.is_autoplay = False
         # обнуление таблицы с отслеживаемыми объектами
@@ -798,13 +955,17 @@ class TrackerWindow(QMainWindow):
         #self.reset_classes_with_description_table()
 
     def change_alternative_tracker_handling(self):
-        select_alt_tracker_dialog = SelectModelDialog(list(self.alternative_trackers_create_functions_dict.keys()))
+        select_alt_tracker_dialog = SelectFromListDialog(
+            list(self.alternative_trackers_create_functions_dict.keys()),
+            title='Выбор альтернативного трекера')
         is_changed = select_alt_tracker_dialog.exec()
         self.is_autoplay = False
         if not is_changed:
             return
         else:
-            self.alternative_tracker_type = select_alt_tracker_dialog.current_model
+            if select_alt_tracker_dialog.current_item == '---':
+                return
+            self.alternative_tracker_type = select_alt_tracker_dialog.current_item
             self.current_alternative_tracker_label.setText(f'Текущий доп. трэкер: {self.alternative_tracker_type}')
             if self.video_capture is None:
                 return
@@ -825,13 +986,16 @@ class TrackerWindow(QMainWindow):
     
     def change_detector_handling(self):
         #models_names_list = ['yolov8n', 'yolov8s', 'yolov8m', 'yolov8l', 'yolov8x']
-        select_detector_dialog = SelectModelDialog(self.detectors_names_list)
+        select_detector_dialog = SelectFromListDialog(
+            self.detectors_names_list, title='Выбор детектора')
         is_changed = select_detector_dialog.exec()
         self.is_autoplay = False
         if not is_changed:
             return
         else:
-            self.tracker_type = f'{select_detector_dialog.current_model}.pt'
+            if select_detector_dialog.current_item == '---':
+                return
+            self.tracker_type = f'{select_detector_dialog.current_item}.pt'
             self.current_detector_label.setText(f'Текущий НС детектор: {self.tracker_type.split(".")[0]}')
             if self.video_capture is None:
                 return
@@ -964,9 +1128,6 @@ class TrackerWindow(QMainWindow):
         # Для того, чтобы переассоциировать рамки, сначала ищем рамку 
         # того же самого зарегистрированного объекта, если он есть в таблице
         existent_bbox_df = self.frame_with_boxes.bboxes_container.find_bbox_by_attributes(class_name=current_class_name, registered_idx=current_registered_idx, object_description=current_registered_object_descr)
-        #print('DEBUG associate_auto_bboxes_handling: bbox found by attributes:')
-        #print(f'{current_class_name},auto_idx={current_auto_idx},registered_idx={current_registered_idx},{current_registered_object_descr}')
-        #print(existent_bbox_df)
 
         if len(existent_bbox_df) == 1:
             existent_bbox = existent_bbox_df['bbox'].values[0]
@@ -983,8 +1144,7 @@ class TrackerWindow(QMainWindow):
             object_description=current_registered_object_descr,
             registered_idx=current_registered_idx
         )
-        #print('DEBUG assocoate_auto_bbox_handling after association:')
-        #print(self.frame_with_boxes.bboxes_container.bboxes_df)
+
         self.update_objects_descr_table()
         registered_bbox_df = self.frame_with_boxes.bboxes_container.find_bbox_by_attributes(
             class_name=current_class_name,
@@ -1103,15 +1263,9 @@ class TrackerWindow(QMainWindow):
 
             # также делаем все альтернативно отслеживаемые рамки отслеживаемыми посредством альтернативных трекеров
             self.frame_with_boxes.bboxes_container.change_all_bboxes_alternative_tracker_type(new_tracker_type='alternative')
-            #print()
-            #print('DEBUG: disable_alt_tracking_slot UNCHECKED')
-            #print(self.frame_with_boxes.bboxes_container.get_all_alternative_tracked_registered_bboxes())
         else:
             # делаем все альтернативно отслеживаемые рамки не отслеживаемыми (запрещаем менять координаты)
             self.frame_with_boxes.bboxes_container.change_all_bboxes_alternative_tracker_type(new_tracker_type='no')
-            #print()
-            #print('DEBUG: disable_alt_tracking_slot CHECKED')
-            #print(self.frame_with_boxes.bboxes_container.get_all_alternative_tracked_registered_bboxes())
     
     def setup_imshow_thread(self):
         '''
@@ -1173,9 +1327,9 @@ class TrackerWindow(QMainWindow):
         # добавляем созданную рамку в контейнер измененных рамок (нужно для логгирования)
         self.bboxes_container_after_corrections.update_bbox(manually_created_bbox)
 
-        #print('DEBUG label_new_bbox: bboxes_container_after_corrections')
-        #print(self.bboxes_container_after_corrections)
-        #print()
+        if not self.disable_alt_tracking.isChecked():
+            self.reinit_alt_trackers_for_all_alt_tracked_bboxes()
+
 
 
     def reset_alternative_trackers(self):
@@ -1196,18 +1350,12 @@ class TrackerWindow(QMainWindow):
         self.bbox_after_correction = self.frame_with_boxes.bbox_after_correction
 
         if self.is_logging_checkbox.isChecked() and self.bbox_after_correction is not None:
-            print(self.bbox_after_correction)
             # если рамка зарегистрирована, сохраняем информацию о ней
             if self.bbox_after_correction.registered_idx != -1:
                 self.bboxes_container_after_corrections.update_bbox(self.bbox_after_correction)
 
         if not self.disable_alt_tracking.isChecked():
             self.reinit_alt_trackers_for_all_alt_tracked_bboxes()
-
-        #print('!!!!! AFTER MANUAL CORRECTION !!!!!')
-        #print('DEBUG read_frame bboxes_container_after_corrections')
-        #print(self.bboxes_container_after_corrections)
-        #print()
             
     def reset_display(self):
         #Обнуление значений на экране и на слайдере
@@ -1310,7 +1458,7 @@ class TrackerWindow(QMainWindow):
         # обновляем путь до последнего открытого файла и перезаписываем файл конфигурации
         self.settings_dict['last_opened_folder'] = path_to_folder
         with open('settings.json', 'w', encoding='utf-8') as fd:
-            json.dump(self.settings_dict, fd)
+            json.dump(self.settings_dict, fd, indent=4)
 
         # читаем базу данных с объектами, которые надо отслеживать
         registered_objects_db = self.read_tracking_objects_db(path_to_folder, name)
@@ -1375,104 +1523,260 @@ class TrackerWindow(QMainWindow):
             self.frame_with_boxes.delete_img()            
             self.imshow_thread.wait()
 
-    def analyze_labelling_result(self):
-        print('-------------------------------------------')
-        print('DEBUG analyze_labelling_result')
-        print('BBOXES before update')
-        print(self.bboxes_container_berfore_corrections)
-        print()
-        print('BBOXES after update')
-        print(self.bboxes_container_after_corrections)
-        print()
-        print('SAVING BBOXES CONTAINER')
-        print(self.frame_with_boxes.bboxes_container)
-        print('-------------------------------------------')
+    def append_bbox_to_logging_dict(self, logging_dict, bbox, prev_bbox):
+        class_name = bbox.class_name
+        registered_idx = bbox.registered_idx
+        object_description = bbox.object_description
+        bbox_name = f'{class_name},{registered_idx},{object_description}'
+        iou = compute_iou(bbox.coords, prev_bbox.coords)
+        prev_bbox_name = f'{prev_bbox.class_name},reg_id:{prev_bbox.registered_idx},auto_id:{prev_bbox.auto_idx}'
+        logging_dict[bbox_name]['bboxes_before_corrections'].append(
+            {'name': prev_bbox_name,
+            'coords': [int(c) for c in prev_bbox.coords],
+            'iou': iou,
+            'comparing_bbox_type': prev_bbox.tracker_type})
 
+
+
+    def analyze_labelling_result(self):
         logging_dict = {}
 
         updated_bboxes_container = self.frame_with_boxes.bboxes_container
         # Выявление перегистрированных рамок
         #
-        # Ищем те рамки зарегистрированного объекта, для которых выполняется автоматический или альтерантивный трекинг
         #filter_condition = (updated_bboxes_container.bboxes_df['registered_idx'] != -1) &(updated_bboxes_container.bboxes_df['auto_idx']!=-1)
+        # Ищем только зарегистрированные рамки 
         filter_condition = (updated_bboxes_container.bboxes_df['registered_idx'] != -1) #& updated_bboxes_container.bboxes_df['bbox'].apply(lambda bbox: bbox.tracker_type != 'no')
         registered_objects_df = updated_bboxes_container.bboxes_df[filter_condition]
-
-        print('REGISTERED DF')
-        print(registered_objects_df)
         
         for index, row in registered_objects_df.iterrows():
             bbox = row['bbox']
             class_name = row['class_name']
             auto_idx = row['auto_idx']
             registered_idx = row['registered_idx']
-            object_description = row['object_description']
+            object_description = row['object_description'] 
 
-            
-
-            bbox_name = f'{object_description},{class_name},{registered_idx}'
+            # Записываем в словарь данные об отслеживаемой рамке. 
+            # Если в словарь не будет записана информация о пересекающихся рамках, то это сигнал о том,
+            # что трекеры отработали неправильно - произошел ложный пропуск (ложное нераспознавание)
+            bbox_name = f'{class_name},{registered_idx},{object_description}'
             logging_dict[bbox_name] = {
                     'coords': [int(c) for c in bbox.coords],
                     'corrected_bbox_type': bbox.tracker_type,
-                    'bboxes_before_corrections': []
-                    }
+                    'bboxes_before_corrections': []}
             
-            same_auto_bboxes_df = self.bboxes_container_berfore_corrections.find_bbox_by_attributes(
-                class_name=class_name, auto_idx=auto_idx
-            )
+            # Ищем в контейнере до правок рамки с тем же auto_idx, включая те, которые отслеживаются
+            # альтернативным трекером, или те, координаты которых вообще не изменяются
+            #found_auto_bbox_same_auto_idx_df = self.bboxes_container_berfore_corrections.find_bbox_by_attributes(class_name=class_name, auto_idx=auto_idx)
             
-            # как быть с перегистрируемыми рамками (когда "альтернативная" рамка перерегистрируется на автоматическую)?
-            if len(same_auto_bboxes_df) != 0 and bbox.tracker_type != 'no': # ?????
-                prev_bbox = same_auto_bboxes_df['bbox'].values[0]
+            if bbox.tracker_type == 'auto':
+                # Если после всех коррекций у нас получилась автоматическая рамка, то она отразилась 
+                # как не зарегистрированная в контейнере с рамками до всех изменений.
+                # Таким образом, нам надо искать только автоматически сгенерированные рамки.
+
+                # Ищем в контейнере до правок рамки с тем же auto_idx, включая те, которые отслеживаются
+                # альтернативным трекером, или те, координаты которых вообще не изменяются
+                found_auto_bbox_same_auto_idx_df = self.bboxes_container_berfore_corrections.find_bbox_by_attributes(
+                    class_name=class_name, auto_idx=auto_idx, tracker_type='auto')
                 
-                # вычисляем iou с рамкой до коррекции
-                iou = compute_iou(bbox.coords, prev_bbox.coords)
+                if len(found_auto_bbox_same_auto_idx_df) != 0:
+                    # если есть рамка с тем же автоматическим индексом, то добавляем ее в лог
+                    prev_bbox = found_auto_bbox_same_auto_idx_df['bbox'].values[0]
+                    self.append_bbox_to_logging_dict(logging_dict, bbox, prev_bbox)
+                    '''
+                    # вычисляем iou с рамкой до коррекции
+                    iou = compute_iou(bbox.coords, prev_bbox.coords)
+                    prev_bbox_name = f'{prev_bbox.class_name},reg_id:{prev_bbox.registered_idx},auto_id:{prev_bbox.auto_idx}'
+                    #if prev_bbox.tracker_type != 'no':
+                    logging_dict[bbox_name]['bboxes_before_corrections'].append(
+                        {'name': prev_bbox_name,
+                        'coords': [int(c) for c in prev_bbox.coords],
+                        'iou': iou,
+                        'comparing_bbox_type': prev_bbox.tracker_type})
+                    '''
+            elif bbox.tracker_type == 'alternative':
+                # Если после всех коррекций у нас получилась рамка, отслеживаемая автоматическим 
+                # трекером, то нам надо проверить три ситуации: 
+                # 1. Есть ли в контейнере с рамками до коррекций та же самая рамка с альтерантивным трекером 
+                # 2. Есть ли в контейнере с рамками до коррекций автоматические рамки пересекающиеся с альтернативной
                 
-                prev_bbox_name = f'{prev_bbox.class_name},reg_id:{prev_bbox.registered_idx},auto_id:{prev_bbox.auto_idx}'
-                '''
-                if bbox.tracker_type == 'auto':
-                    corrected_bbox_type = 'auto'
-                elif bbox.tracker_type == 'alternative':
-                    corrected_bbox_type = 'alternative'
-                else:
-                    raise ValueError('corrected_bbox_type should be either "auto" or "alternative"')
-                '''
-                logging_dict[bbox_name]['bboxes_before_corrections'].append(
-                    {'name': prev_bbox_name,
-                    'coords': [int(c) for c in prev_bbox.coords],
-                    'iou': iou,
-                    'comparing_bbox_type': prev_bbox.tracker_type})
+                # Ищем альтернативные рамки по тому же зарегистрированному индексу и типу трекинга
+                found_alternative_bboxes_df = self.bboxes_container_berfore_corrections.find_bbox_by_attributes(
+                    class_name=class_name, registered_idx=registered_idx, tracker_type='alternative')
                 
-                # Потом в рамках, которые отслеживаются альтернативными трекерами или без трекера,
-                # ищем не пересекающиеся автоматические и
-            elif bbox.auto_idx == -1:
-                # если рамка отслеживается альтернативно или не отслеживается, выполняем сравнение с другими автоматическими и альтернативными рамками
-                print('!!!!!!!!!!!АЛЬТЕРНАТИВНЫЙ ТРЕКИНГ!!!!!!!!!!!!')
-                nearest_iou_dict = self.bboxes_container_berfore_corrections.find_nearest_iou_bbox(bbox=bbox, tracking_type='all')
-                nearest_bbox = nearest_iou_dict['nearest_bbox']
-                nearest_iou = nearest_iou_dict['nearest_bbox_iou']
-                if nearest_bbox is not None:
-                    # если пересечений с другими рамками нет, то ничего не записываем в словарь
+                if len(found_alternative_bboxes_df) != 0:
+                    prev_bbox = found_alternative_bboxes_df['bbox'].values[0]
+                    self.append_bbox_to_logging_dict(logging_dict, bbox, prev_bbox)
+                
+                # Ищем автоматические рамки по имени класса и типу трекинга
+                found_auto_bboxes_same_registered_idx = self.bboxes_container_berfore_corrections.find_bbox_by_attributes(
+                    class_name=class_name, registered_idx=registered_idx, tracker_type='auto')
+                if len(found_auto_bboxes_same_registered_idx) != 0:
+                    prev_bbox = found_auto_bboxes_same_registered_idx['bbox'].values[0]
+                    if prev_bbox.registered_idx == bbox.registered_idx:
+                        # Если зарегистрированный индекс альтернативной рамки совпадает, то записываем в лог
+                        self.append_bbox_to_logging_dict(logging_dict, bbox, prev_bbox)
+                        # ...и пропускаем ход, т.к. нам больше нет резона сравнивать с другими автоматическими рамками
+                        continue
+                        
+                # Ищем автоматические рамки по IoU
+                all_auto_bboxes_same_class_df = self.bboxes_container_berfore_corrections.find_bbox_by_attributes(
+                    class_name=class_name, tracker_type='auto')
+                
+                # на всякий случай исключим также рамки с тем же зарегистрированным индексом
+                all_auto_bboxes_same_class_df = all_auto_bboxes_same_class_df[
+                    all_auto_bboxes_same_class_df['registered_idx']!=registered_idx]
+                if len(all_auto_bboxes_same_class_df) != 0:
+                    # добавляем колонку с IoU
+                    all_auto_bboxes_same_class_df.loc[:, 'iou'] = all_auto_bboxes_same_class_df['bbox'].apply(lambda x:compute_iou(x.coords, bbox.coords))
+                    # сортируем по убыванию IoU
+                    all_auto_bboxes_same_class_df = all_auto_bboxes_same_class_df.sort_values(by='iou', ascending=False)
+
+                    # запускаем диалоговое окно, чтобы подтвердить ближайшее IoU
+                    nearest_bbox = all_auto_bboxes_same_class_df.iloc[0]['bbox']
+                    nearest_iou = all_auto_bboxes_same_class_df.iloc[0]['iou']
+                    if nearest_iou < 0.1:
+                        continue
                     nearest_bbox_name = f'{nearest_bbox.class_name},reg_id:{nearest_bbox.registered_idx},auto_id:{nearest_bbox.auto_idx}'
-                    print(f'БЛИЖАЙШАЯ РАМКА С IoU={nearest_iou}: {nearest_bbox_name}')
-                    print(nearest_bbox)
                     msg_str = f'Для рамки\n"{bbox_name}"\nобнаружено пересечение с автоматической рамкой\n"{nearest_bbox_name}"\n(IoU={nearest_iou:.2f}).\n\nПодтвердить пересечение?'
+                    '''
                     ret = show_info_message_box(
                         window_title='Подтверждение класса пересекающейся рамки',
                         info_text=msg_str,
                         buttons=QMessageBox.Yes|QMessageBox.No,
                         icon_type=QMessageBox.Information)
-                    if ret == QMessageBox.Yes:
-                        logging_dict[bbox_name]['bboxes_before_corrections'].append(
-                            {'name': nearest_bbox_name,
-                            'coords': [int(c) for c in nearest_bbox.coords],
-                            'iou': nearest_iou,
-                            'comparing_bbox_type': nearest_bbox.tracker_type})
+                    '''
 
-        print('++++++++++++++++++++++++++++++++++++++++++++++++++++')
-        print('LOGGING DICT')
-        print(logging_dict)
-        print('++++++++++++++++++++++++++++++++++++++++++++++++++++')            
+                    approved_bboxes_dialog = ApproveNearestBBoxDialog('Подтверждение класса пересекающейся рамки', msg_str)
+                    approved_bboxes_dialog.show_all_bboxes_signal.connect(self.show_regstered_and_auto_bboxes_button_handling)
+                    approved_bboxes_dialog.show_registered_bboxes_signal.connect(self.show_registered_bboxes_button_handling)
+                    approved_bboxes_dialog.show_auto_bboxes_signal.connect(self.show_auto_bboxes_button_handling)
+                    approved_bboxes_dialog.exec()
+                   
+                    if approved_bboxes_dialog.bbox_choise == 'yes':
+                        # Если подтверждаем рамку, то сохраняем в лог
+                        self.append_bbox_to_logging_dict(logging_dict, bbox, nearest_bbox)
+                    elif approved_bboxes_dialog.bbox_choise == 'no':
+                        # Если мы не выбираем никакую рамку, то продолжаем цикл обработки рамок
+                        continue
+                    elif approved_bboxes_dialog.bbox_choise == 'manual':
+                        # Если рамку не подтверждаем, то запускаем диалоговое окно выбора рамки
+                        bboxes_list = []
+                        for _, row in all_auto_bboxes_same_class_df.iterrows():
+                            auto_bbox = row['bbox']
+                            iou = row['iou']
+                            bboxes_list.append(f'{auto_bbox.class_name}(AG),{auto_bbox.auto_idx};IoU={iou:.3f}')
+
+                        #select_nearest_bbox_dialog = SelectFromListDialog(bboxes_list, title='Выбор ближайшей рамки')
+                        #ret = select_nearest_bbox_dialog.exec()  
+                        select_nearest_bbox_dialog = SelectIoUBboxesDialog(title='Выбор ближайшей рамки', bboxes_list=bboxes_list)
+                        select_nearest_bbox_dialog.show_all_bboxes_signal.connect(self.show_regstered_and_auto_bboxes_button_handling)
+                        select_nearest_bbox_dialog.show_registered_bboxes_signal.connect(self.show_registered_bboxes_button_handling)
+                        select_nearest_bbox_dialog.show_auto_bboxes_signal.connect(self.show_auto_bboxes_button_handling)
+                        ret = select_nearest_bbox_dialog.exec()
+                        if select_nearest_bbox_dialog.current_item == '---':
+                            # если рамка не выбрана, считаем, что ее нет
+                            continue
+
+                        selected_bbox = select_nearest_bbox_dialog.current_item
+                        # парсим selected_bbox
+                        selected_bbox_str, selected_bbox_iou = selected_bbox.split(';')
+                        selected_bbox_name, selected_bbox_idx = selected_bbox_str.split(',')
+                        selected_bbox_name = selected_bbox_name.split('(AG)')[0]
+                        selected_auto_idx = int(selected_bbox_idx)
+                        # ищем рамку
+                        nearest_bbox = self.bboxes_container_berfore_corrections.find_bbox_by_attributes(
+                            class_name=class_name, auto_idx=selected_auto_idx, tracker_type='auto')
+                        if len(nearest_bbox) != 0:
+                            nearest_bbox = nearest_bbox['bbox'].values[0]
+                            self.append_bbox_to_logging_dict(logging_dict, bbox, nearest_bbox)    
+                
+            elif bbox.tracker_type == 'no':
+                # Если после всех коррекций у нас получилась зафиксированная рамка, то мы должны 
+                # проверить ее пересечения с: 
+                # 1. Автоматическими рамками 
+                # 2. Альтернативными рамками
+
+                # Ищем альтернативные рамки по тому же зарегистрированному индексу и типу трекинга
+                found_alternative_bboxes_df = self.bboxes_container_berfore_corrections.find_bbox_by_attributes(
+                    class_name=class_name, registered_idx=registered_idx, tracker_type='alternative')
+                
+                if len(found_alternative_bboxes_df) != 0:
+                    prev_bbox = found_alternative_bboxes_df['bbox'].values[0]
+                    self.append_bbox_to_logging_dict(logging_dict, bbox, prev_bbox)
+                
+                # Ищем автоматические рамки по IoU
+                all_auto_bboxes_same_class_df = self.bboxes_container_berfore_corrections.find_bbox_by_attributes(
+                    class_name=class_name, tracker_type='auto')
+                
+                # на всякий случай исключим также рамки с тем же зарегистрированным индексом
+                all_auto_bboxes_same_class_df = all_auto_bboxes_same_class_df[
+                    all_auto_bboxes_same_class_df['registered_idx']!=registered_idx]
+                if len(all_auto_bboxes_same_class_df) != 0:
+                    # добавляем колонку с IoU
+                    all_auto_bboxes_same_class_df.loc[:, 'iou'] = all_auto_bboxes_same_class_df['bbox'].apply(lambda x:compute_iou(x.coords, bbox.coords))
+                    # сортируем по убыванию IoU
+                    all_auto_bboxes_same_class_df = all_auto_bboxes_same_class_df.sort_values(by='iou', ascending=False)
+
+                    # запускаем диалоговое окно, чтобы подтвердить ближайшее IoU
+                    nearest_bbox = all_auto_bboxes_same_class_df.iloc[0]['bbox']
+                    nearest_iou = all_auto_bboxes_same_class_df.iloc[0]['iou']
+                    if nearest_iou < 0.1:
+                        continue
+                    nearest_bbox_name = f'{nearest_bbox.class_name},reg_id:{nearest_bbox.registered_idx},auto_id:{nearest_bbox.auto_idx}'
+                    msg_str = f'Для рамки\n"{bbox_name}"\nобнаружено пересечение с автоматической рамкой\n"{nearest_bbox_name}"\n(IoU={nearest_iou:.2f}).\n\nПодтвердить пересечение?'
+                    '''
+                    ret = show_info_message_box(
+                        window_title='Подтверждение класса пересекающейся рамки',
+                        info_text=msg_str,
+                        buttons=QMessageBox.Yes|QMessageBox.No,
+                        icon_type=QMessageBox.Information)
+                    '''
+                    approved_bboxes_dialog = ApproveNearestBBoxDialog('Подтверждение класса пересекающейся рамки', msg_str)
+                    approved_bboxes_dialog.show_all_bboxes_signal.connect(self.show_regstered_and_auto_bboxes_button_handling)
+                    approved_bboxes_dialog.show_registered_bboxes_signal.connect(self.show_registered_bboxes_button_handling)
+                    approved_bboxes_dialog.show_auto_bboxes_signal.connect(self.show_auto_bboxes_button_handling)
+                    approved_bboxes_dialog.exec()
+                   
+                    if approved_bboxes_dialog.bbox_choise == 'yes':
+                        # Если подтверждаем рамку, то сохраняем в лог
+                        self.append_bbox_to_logging_dict(logging_dict, bbox, nearest_bbox)
+                    elif approved_bboxes_dialog.bbox_choise == 'no':
+                        # Если мы не выбираем никакую рамку, то продолжаем цикл обработки рамок
+                        continue
+                    elif approved_bboxes_dialog.bbox_choise == 'manual':
+                        # Если рамку не подтверждаем, то запускаем диалоговое окно выбора рамки
+                        bboxes_list = []
+                        for _, row in all_auto_bboxes_same_class_df.iterrows():
+                            auto_bbox = row['bbox']
+                            iou = row['iou']
+                            bboxes_list.append(f'{auto_bbox.class_name}(AG),{auto_bbox.auto_idx};IoU={iou}')
+
+                        #select_nearest_bbox_dialog = SelectFromListDialog(bboxes_list, title='Выбор ближайшей рамки')
+                        #ret = select_nearest_bbox_dialog.exec()
+
+                        select_nearest_bbox_dialog = SelectIoUBboxesDialog(title='Выбор ближайшей рамки', bboxes_list=bboxes_list)
+                        select_nearest_bbox_dialog.show_all_bboxes_signal.connect(self.show_regstered_and_auto_bboxes_button_handling)
+                        select_nearest_bbox_dialog.show_registered_bboxes_signal.connect(self.show_registered_bboxes_button_handling)
+                        select_nearest_bbox_dialog.show_auto_bboxes_signal.connect(self.show_auto_bboxes_button_handling)
+                        ret = select_nearest_bbox_dialog.exec()
+                        if select_nearest_bbox_dialog.current_item == '---':
+                            # если рамка не выбрана, считаем, что ее нет
+                            continue
+
+                        selected_bbox = select_nearest_bbox_dialog.current_item
+                        # парсим selected_bbox
+                        selected_bbox_str, selected_bbox_iou = selected_bbox.split(';')
+                        selected_bbox_name, selected_bbox_idx = selected_bbox_str.split(',')
+                        selected_bbox_name = selected_bbox_name.split('(AG)')[0]
+                        selected_auto_idx = int(selected_bbox_idx)
+                        # ищем рамку
+                        nearest_bbox = self.bboxes_container_berfore_corrections.find_bbox_by_attributes(
+                            class_name=class_name, auto_idx=selected_auto_idx, tracker_type='auto')
+                        if len(nearest_bbox) != 0:
+                            nearest_bbox = nearest_bbox['bbox'].values[0]
+                            self.append_bbox_to_logging_dict(logging_dict, bbox, nearest_bbox)
+          
         return logging_dict
         
     def save_labels(self):
@@ -1518,7 +1822,6 @@ class TrackerWindow(QMainWindow):
                 existing_logging_dict = {}
             # обновляем словарь новыми данными 
             existing_logging_dict.update(logging_dict)
-            print('BEFORE SAVE LOG')
             
             # сохраняем лог
             with open(path_to_bboxes_loggging_json, 'w', encoding='utf-8') as fd:
@@ -1692,13 +1995,11 @@ class TrackerWindow(QMainWindow):
                 if len(self.bboxes_container_berfore_corrections) == 0:
                     # если до этого момента в bboxes_container_berfore_corrections,
                     # то сохраняем текущее состояние рамок как состояние до коррекций
-                    print('RENEW bboxes_container_berfore_corrections')
-
-                    #self.frame_with_boxes.bboxes_container.bboxes_df.to_csv('tmp.csv', index=False)
-                    #self.bboxes_container_berfore_corrections.bboxes_df = pd.read_csv('tmp.csv')
-                    #self.bboxes_container_berfore_corrections.bboxes_df = self.frame_with_boxes.bboxes_container.bboxes_df.copy(deep=True)
-                    lst = []
+                    
                     # КОСТЫЛЬ!!!!111111
+                    # Приходится копировать каждую рамку, иначе сслыки на объекты класса Bbox,
+                    # хранящиеся в DataFrame при deepcopy не отвязываются(((
+                    lst = []
                     for _, row in self.frame_with_boxes.bboxes_container.bboxes_df.iterrows():
                         new_row = row.copy(deep=True)
                         bbox = row['bbox']
@@ -1708,13 +2009,7 @@ class TrackerWindow(QMainWindow):
 
                     self.bboxes_container_berfore_corrections.bboxes_df = pd.DataFrame(lst)
                     ########################################################
-
-            print('!!!!! AFTER FRAME PROCESSING !!!!!')
-            print('DEBUG read_frame bboxes_container_before_corrections')
-            print(self.bboxes_container_berfore_corrections)
-            print()
             
-    
     def check_registered_in_disappeared_bboxes(self, disappeared_bboxes):
         '''
         Проверка, есть ли в пропавших рамках зарегистрированные и отслеживаемые объекты
@@ -1737,6 +2032,8 @@ class TrackerWindow(QMainWindow):
             # Если в пропавших рамках есть зарегистрированные, то надо сохранить состояние до коррекций
             #self.bboxes_container_berfore_corrections.bboxes_df = self.frame_with_boxes.bboxes_container.bboxes_df.copy(deep=True)
             # КОСТЫЛЬ!!!!111111
+            # Приходится копировать каждую рамку, иначе сслыки на объекты класса Bbox,
+            # хранящиеся в DataFrame при deepcopy не отвязываются(((
             lst = []
             for _, row in self.frame_with_boxes.bboxes_container.bboxes_df.iterrows():
                 new_row = row.copy(deep=True)
@@ -1746,18 +2043,7 @@ class TrackerWindow(QMainWindow):
                 lst.append(new_row)
             self.bboxes_container_berfore_corrections.bboxes_df = pd.DataFrame(lst)
             ########################################################
-                
 
-            
-            #self.frame_with_boxes.bboxes_container.bboxes_df.to_csv('tmp.csv', index=False)
-            #self.bboxes_container_berfore_corrections.bboxes_df = pd.read_csv('tmp.csv')
-            
-            print('--------------------------------------------------------------------')
-            print('REGISTERED BBOX IS DISSAPEARED in check_registered_in_disappeared_bboxes')
-            print('bboxes_container_berfore_corrections:')
-            print(self.bboxes_container_berfore_corrections)
-            print('--------------------------------------------------------------------')
-        
         for _, row in registered_bboxes_df.iterrows():
             bbox = row['bbox']
             disappeared_bbox = row['bbox']
